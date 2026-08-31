@@ -9,8 +9,6 @@ deskripsi: >-
   Kong, a giant ape who is immediately smitten with the leading lady.
 image_url: 'https://image.tmdb.org/t/p/w500/6a2HY6UmD7XiDD3NokgaBAXEsD2.jpg'
 rating: 6.9
-featured: false
-trending: false
 language: EN
 ---
 

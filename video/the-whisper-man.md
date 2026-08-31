@@ -7,8 +7,7 @@ deskripsi: >-
   When his young son vanishes, a widower enlists help from his estranged father,
   a retired detective who put away the serial killer now linked to the case.
 image_url: 'https://image.tmdb.org/t/p/w500/6UqflU8Qqkz7Dq4swJPqs0ZJjY4.jpg'
-featured: false
-trending: false
+rating: 0
 language: EN
 ---
 

@@ -7,7 +7,6 @@ deskripsi: >-
   musuh-musuhnya di Dewan Bupati bersatu melawannya.
 image_url: 'https://image.tmdb.org/t/p/w1280/7O4iVfOMQmdCSxhOg1WnzG1AgYT.jpg'
 rating: 9.9
-featured: false
 language: JP
 ---
 

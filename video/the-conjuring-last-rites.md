@@ -8,8 +8,6 @@ deskripsi: >-
   case involving mysterious entities they must confront.
 image_url: 'https://image.tmdb.org/t/p/w500/byWgphT74ClOVa8EOGzYDkl8DVL.jpg'
 rating: 6.9
-featured: false
-trending: false
 language: EN
 ---
 

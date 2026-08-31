@@ -13,8 +13,6 @@ deskripsi: >-
   loose on Lake Victoria.
 image_url: 'https://image.tmdb.org/t/p/w500/lMLS2OFBbNYMSB1ZbVp4q2S4zTU.jpg'
 rating: 5.4
-featured: false
-trending: false
 language: EN
 ---
 
