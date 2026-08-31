@@ -1,0 +1,11 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "env": {
+    "NEXT_PUBLIC_TMDB_API_KEY": "ea0c8bc1b7235d9e19b457c965b658ad",
+    "NEXT_PUBLIC_TMDB_BASE_URL": "https://api.themoviedb.org/3",
+    "NEXT_PUBLIC_TMDB_IMAGE_BASE_URL": "https://image.tmdb.org/t/p"
+  }
+}

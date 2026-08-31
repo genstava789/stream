@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "filmanesia-clone",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-28",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "TELEGRAM_BOT_TOKEN": "6673058749:AAH0X2vdpEgWNxeDhsZJy77_pXIG-_YCpRU",
+    "NEXT_PUBLIC_TMDB_API_KEY": "ea0c8bc1b7235d9e19b457c965b658ad",
+    "NEXT_PUBLIC_TMDB_BASE_URL": "https://api.themoviedb.org/3",
+    "NEXT_PUBLIC_TMDB_IMAGE_BASE_URL": "https://image.tmdb.org/t/p"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "NEXT_INC_CACHE_KV",
+      "id": "cd006e0fda6943d58b2f3a80ddfcb913"
+    }
+  ]
+}
