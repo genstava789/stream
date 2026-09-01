@@ -70,7 +70,7 @@ export const siteConfig = {
   tagline: 'Watch Movies & TV Shows Online',
   description:
     'Discover and explore thousands of movies and TV shows. Find trending titles, top-rated classics, and everything in between on LeviStream.',
-  url: 'https://filmes-xi-seven.vercel.app',
+  url: 'https://levistream.freebuff.app',
   logoUrl: 'https://filmes-xi-seven.vercel.app/logo.png',
   keywords: [
     'movies',
@@ -263,7 +263,7 @@ export const siteConfig = {
     },
     {
       id: 'recentlyAddedSeries',
-      title: 'Recently Added Series',
+      title: 'Recently Added',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
       weight: 35,
@@ -315,7 +315,7 @@ export const siteConfig = {
   },
 
   links: {
-    github: 'https://github.com/genstava789/filmes',
+    github: 'https://github.com/genstava789/stream',
   },
 
   // Customizable Warning Notice for Non-Local Content (Custom Pages)
