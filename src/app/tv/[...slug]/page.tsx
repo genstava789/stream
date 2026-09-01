@@ -15,6 +15,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import TVDetailClient, { TVDetailHeaderActions } from '@/components/TVDetailClient';
 import TVEpisodeList from '@/components/TVEpisodeList';
 import NonLocalWarning from '@/components/NonLocalWarning';
+import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
@@ -214,60 +215,21 @@ export default async function TVShowPage({ params }: PageProps) {
   const uploadDate = data.first_air_date ? `${data.first_air_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
   const durationIso = formatIsoDuration(activeEpisode?.duration || data.episode_run_time?.[0] || '45m');
 
-  const videoObjectSchema = isEpisodePage && videoUrl
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'VideoObject',
-        name: videoTitle,
-        description: videoDescription,
-        thumbnailUrl: [thumbnailImage],
-        uploadDate: uploadDate,
-        duration: durationIso,
-        contentUrl: pageUrl,
-        embedUrl: embedUrl,
-        publisher: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-          url: siteUrl,
-          logo: {
-            '@type': 'ImageObject',
-            url: getServerAbsoluteUrl('/logo.png'),
-          },
-        },
-        provider: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-          url: siteUrl,
-        },
-        author: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-        },
-      }
-    : null;
-
   return (
     <div className="min-h-screen pb-12" style={{ background: '#050816' }}>
       {/* OpenGraph Video & Schema.org VideoObject (Only on Episode page with video) */}
       {isEpisodePage && videoUrl && (
-        <>
-          <meta property="og:site_name" content={siteConfig.name} />
-          <meta name="application-name" content={siteConfig.name} />
-          <meta name="apple-mobile-web-app-title" content={siteConfig.name} />
-          <link rel="video_src" href={embedUrl} />
-          <meta property="og:video" content={embedUrl} />
-          <meta property="og:video:url" content={embedUrl} />
-          <meta property="og:video:secure_url" content={embedUrl} />
-          <meta property="og:video:type" content="text/html" />
-          <meta property="og:video:width" content="1920" />
-          <meta property="og:video:height" content="1080" />
-          {videoObjectSchema && (
-            <script
-              type="application/ld+json"
-              dangerouslySetInnerHTML={{ __html: JSON.stringify(videoObjectSchema, null, 2) }}
-            />
-          )}
-        </>
+        <DynamicVideoSchema
+          title={videoTitle}
+          description={videoDescription}
+          thumbnailUrl={thumbnailImage}
+          uploadDate={uploadDate}
+          duration={durationIso}
+          urlPath={`/tv/${params.slug.join('/')}`}
+          embedPath={`/embed/tv/${params.slug.join('/')}`}
+          siteName={siteConfig.name}
+          initialBaseUrl={siteUrl}
+        />
       )}
 
       {/* ── CASE A: EPISODE PLAYBACK PAGE (slug.length > 1) ── */}

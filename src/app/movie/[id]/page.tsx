@@ -15,6 +15,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import MovieDetailClient from '@/components/MovieDetailClient';
 import VideoPlayer from '@/components/VideoPlayer';
 import NonLocalWarning from '@/components/NonLocalWarning';
+import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
@@ -175,8 +176,6 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const trailerKey = trailer ? trailer.key : null;
   const videoUrl = movie.customVideoUrl || null;
   const videoType = videoUrl && videoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-  const pageUrl = getServerAbsoluteUrl(`/movie/${params.id}`);
-  const embedUrl = getServerAbsoluteUrl(`/embed/movie/${params.id}`);
 
   // 1. Poster for detail hero card / display (Own official data source from TMDB)
   const posterImage = movie.poster_path
@@ -204,60 +203,21 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const uploadDate = movie.release_date ? `${movie.release_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
   const durationIso = formatIsoDuration(movie.runtime || '120m');
 
-  const videoObjectSchema = videoUrl
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'VideoObject',
-        name: videoTitle,
-        description: videoDescription,
-        thumbnailUrl: [thumbnailImage],
-        uploadDate: uploadDate,
-        duration: durationIso,
-        contentUrl: pageUrl,
-        embedUrl: embedUrl,
-        publisher: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-          url: siteUrl,
-          logo: {
-            '@type': 'ImageObject',
-            url: getServerAbsoluteUrl('/logo.png'),
-          },
-        },
-        provider: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-          url: siteUrl,
-        },
-        author: {
-          '@type': 'Organization',
-          name: siteConfig.name,
-        },
-      }
-    : null;
-
   return (
     <div className="min-h-screen pb-12" style={{ background: '#050816' }}>
       {/* OpenGraph Video & Schema.org VideoObject */}
       {videoUrl && (
-        <>
-          <meta property="og:site_name" content={siteConfig.name} />
-          <meta name="application-name" content={siteConfig.name} />
-          <meta name="apple-mobile-web-app-title" content={siteConfig.name} />
-          <link rel="video_src" href={embedUrl} />
-          <meta property="og:video" content={embedUrl} />
-          <meta property="og:video:url" content={embedUrl} />
-          <meta property="og:video:secure_url" content={embedUrl} />
-          <meta property="og:video:type" content="text/html" />
-          <meta property="og:video:width" content="1920" />
-          <meta property="og:video:height" content="1080" />
-          {videoObjectSchema && (
-            <script
-              type="application/ld+json"
-              dangerouslySetInnerHTML={{ __html: JSON.stringify(videoObjectSchema, null, 2) }}
-            />
-          )}
-        </>
+        <DynamicVideoSchema
+          title={videoTitle}
+          description={videoDescription}
+          thumbnailUrl={thumbnailImage}
+          uploadDate={uploadDate}
+          duration={durationIso}
+          urlPath={`/movie/${params.id}`}
+          embedPath={`/embed/movie/${params.id}`}
+          siteName={siteConfig.name}
+          initialBaseUrl={siteUrl}
+        />
       )}
 
       {/* ── 1. CUSTOM VIDEO PLAYER (IF CUSTOM CONTENT) OR CINEMATIC POSTER HERO BANNER ── */}

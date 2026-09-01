@@ -17,6 +17,7 @@ import TrailerModal from '@/components/TrailerModal';
 import VideoPlayer from '@/components/VideoPlayer';
 import ShareButton from '@/components/ShareButton';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
+import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { CustomSeason, CustomEpisode } from '@/lib/markdownTV';
 import { useAuth } from '@/context/AuthContext';
 import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
@@ -254,51 +255,16 @@ export default function TVDetailClient({
     <div className="w-full">
       {/* Dynamic Video Meta & Schema for Third-Party Players */}
       {activeEpisode?.videoUrl && (
-        <>
-          <meta property="og:site_name" content={siteConfig.name} />
-          <meta name="application-name" content={siteConfig.name} />
-          <meta name="apple-mobile-web-app-title" content={siteConfig.name} />
-          <link rel="video_src" href={embedUrl} />
-          <meta property="og:video" content={embedUrl} />
-          <meta property="og:video:url" content={embedUrl} />
-          <meta property="og:video:secure_url" content={embedUrl} />
-          <meta property="og:video:type" content="text/html" />
-          <meta property="og:video:width" content="1920" />
-          <meta property="og:video:height" content="1080" />
-          <script
-            type="application/ld+json"
-            dangerouslySetInnerHTML={{
-              __html: JSON.stringify({
-                '@context': 'https://schema.org',
-                '@type': 'VideoObject',
-                name: currentVideoTitle,
-                description: activeEpisode.overview || currentVideoTitle,
-                thumbnailUrl: [activeEpisode.imageUrl || defaultBackdrop || ''],
-                contentUrl: pageUrl,
-                embedUrl: embedUrl,
-                uploadDate: '2026-08-24T00:00:00+07:00',
-                publisher: {
-                  '@type': 'Organization',
-                  name: siteConfig.name,
-                  url: siteUrl,
-                  logo: {
-                    '@type': 'ImageObject',
-                    url: getAbsoluteUrl('/logo.png'),
-                  },
-                },
-                provider: {
-                  '@type': 'Organization',
-                  name: siteConfig.name,
-                  url: siteUrl,
-                },
-                author: {
-                  '@type': 'Organization',
-                  name: siteConfig.name,
-                },
-              }),
-            }}
-          />
-        </>
+        <DynamicVideoSchema
+          title={currentVideoTitle}
+          description={activeEpisode.overview || currentVideoTitle}
+          thumbnailUrl={activeEpisode.imageUrl || defaultBackdrop || ''}
+          uploadDate="2026-08-24T00:00:00+07:00"
+          urlPath={activeEpisode.urlPath || `/tv/${showTitle}`}
+          embedPath={activeEpisode.urlPath ? `/embed${activeEpisode.urlPath}` : `/embed/tv/${showTitle}`}
+          siteName={siteConfig.name}
+          initialBaseUrl={siteUrl}
+        />
       )}
 
       {/* ── 1. Top Video Player (Edge-to-edge / Full view) ── */}

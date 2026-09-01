@@ -7,6 +7,7 @@ import {
 } from '@/lib/markdownTV';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getImageUrl } from '@/lib/tmdb';
+import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
@@ -138,51 +139,19 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
   const videoDescription = activeEpisode.overview || data.overview || `Streaming ${data.name} full episode sub indo.`;
   const uploadDate = data.first_air_date ? `${data.first_air_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
 
-  const pageUrl = getServerAbsoluteUrl(`/tv/${params.slug.join('/')}`);
-  const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
-
-  const videoObjectSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'VideoObject',
-    name: videoTitle,
-    description: videoDescription,
-    thumbnailUrl: [thumbnailImage],
-    uploadDate: uploadDate,
-    contentUrl: pageUrl,
-    embedUrl: embedUrl,
-    publisher: {
-      '@type': 'Organization',
-      name: siteConfig.name,
-      url: siteUrl,
-      logo: {
-        '@type': 'ImageObject',
-        url: getServerAbsoluteUrl('/logo.png'),
-      },
-    },
-    provider: {
-      '@type': 'Organization',
-      name: siteConfig.name,
-      url: siteUrl,
-    },
-    author: {
-      '@type': 'Organization',
-      name: siteConfig.name,
-    },
-  };
-
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden flex items-center justify-center m-0 p-0">
-      {/* Schema.org & Meta */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(videoObjectSchema, null, 2) }}
+      {/* Dynamic Video Meta & Schema for Third-Party Players */}
+      <DynamicVideoSchema
+        title={videoTitle}
+        description={videoDescription}
+        thumbnailUrl={thumbnailImage}
+        uploadDate={uploadDate}
+        urlPath={`/tv/${params.slug.join('/')}`}
+        embedPath={`/embed/tv/${params.slug.join('/')}`}
+        siteName={siteConfig.name}
+        initialBaseUrl={siteUrl}
       />
-      <meta property="og:site_name" content={siteConfig.name} />
-      <meta name="application-name" content={siteConfig.name} />
-      <meta name="apple-mobile-web-app-title" content={siteConfig.name} />
-      <link rel="video_src" href={embedUrl} />
-      <meta property="og:video" content={embedUrl} />
-      <meta property="og:video:type" content="text/html" />
 
       <div className="w-full h-full">
         <VideoPlayer
