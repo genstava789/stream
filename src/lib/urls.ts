@@ -257,6 +257,8 @@ export function getBaseUrl(customOrigin?: string | null): string {
   }
 
   const envUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.SITE_URL ||
     siteConfig?.url ||

@@ -32,7 +32,13 @@ export default function DynamicVideoSchema({
     if (typeof window !== 'undefined' && window.location?.origin) {
       return window.location.origin.replace(/\/+$/, '');
     }
-    return (initialBaseUrl || siteConfig.url || 'https://levistream.freebuff.app').replace(/\/+$/, '');
+    return (
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      initialBaseUrl ||
+      siteConfig.url ||
+      'https://levistream.freebuff.app'
+    ).replace(/\/+$/, '');
   });
 
   useEffect(() => {
