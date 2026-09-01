@@ -19,6 +19,7 @@ import ShareButton from '@/components/ShareButton';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { CustomSeason, CustomEpisode } from '@/lib/markdownTV';
 import { useAuth } from '@/context/AuthContext';
+import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
 import siteConfig from '@/config';
 
 interface TVDetailHeaderActionsProps {
@@ -245,9 +246,9 @@ export default function TVDetailClient({
     ? `${showTitle} - ${activeEpisode.episodeLabel}: ${activeEpisode.title}${creditSuffix}`
     : `${showTitle}${creditSuffix}`;
 
-  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://filmes-xi-seven.vercel.app';
-  const pageUrl = activeEpisode?.urlPath ? `${siteUrl}${activeEpisode.urlPath}` : siteUrl;
-  const embedUrl = activeEpisode?.urlPath ? `${siteUrl}/embed${activeEpisode.urlPath}` : siteUrl;
+  const siteUrl = getBaseUrl();
+  const pageUrl = activeEpisode?.urlPath ? getAbsoluteUrl(activeEpisode.urlPath) : siteUrl;
+  const embedUrl = activeEpisode?.urlPath ? getAbsoluteUrl(`/embed${activeEpisode.urlPath}`) : siteUrl;
 
   return (
     <div className="w-full">
@@ -282,7 +283,7 @@ export default function TVDetailClient({
                   url: siteUrl,
                   logo: {
                     '@type': 'ImageObject',
-                    url: `${siteUrl}/logo.png`,
+                    url: getAbsoluteUrl('/logo.png'),
                   },
                 },
                 provider: {

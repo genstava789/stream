@@ -7,6 +7,7 @@ import {
 } from '@/lib/markdownTV';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getImageUrl } from '@/lib/tmdb';
+import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
 import siteConfig from '@/config';
 
 export const dynamic = 'force-dynamic';
@@ -19,8 +20,6 @@ interface PageProps {
   };
 }
 
-
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const data = await getTVShowDetailsWithCustomOverride(params.slug).catch(() => null);
 
@@ -32,7 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const isEpisodePage = params.slug.length > 1;
   const activeEpisode = data.activeEpisode || null;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || siteConfig.url;
+  const siteUrl = getBaseUrl();
   const epTitle = isEpisodePage && activeEpisode
     ? ` - ${activeEpisode.episodeLabel}: ${activeEpisode.title}`
     : '';
@@ -51,8 +50,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       (data.backdrop_path ? getImageUrl(data.backdrop_path, 'w1280') : data.poster_path ? getImageUrl(data.poster_path, 'w500') : undefined);
 
   const videoUrl = activeEpisode?.videoUrl || null;
-  const pageUrl = `${siteUrl}/tv/${params.slug.join('/')}`;
-  const embedUrl = `${siteUrl}/embed/tv/${params.slug.join('/')}`;
+  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   return {
     title,
@@ -123,7 +122,7 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
     notFound();
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || siteConfig.url;
+  const siteUrl = getBaseUrl();
   const videoUrl = activeEpisode.videoUrl;
   const defaultBackdrop = data.backdrop_path
     ? getImageUrl(data.backdrop_path, 'original')
@@ -139,8 +138,8 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
   const videoDescription = activeEpisode.overview || data.overview || `Streaming ${data.name} full episode sub indo.`;
   const uploadDate = data.first_air_date ? `${data.first_air_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
 
-  const pageUrl = `${siteUrl}/tv/${params.slug.join('/')}`;
-  const embedUrl = `${siteUrl}/embed/tv/${params.slug.join('/')}`;
+  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   const videoObjectSchema = {
     '@context': 'https://schema.org',
@@ -157,7 +156,7 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
       url: siteUrl,
       logo: {
         '@type': 'ImageObject',
-        url: siteConfig.logoUrl,
+        url: getAbsoluteUrl('/logo.png'),
       },
     },
     provider: {

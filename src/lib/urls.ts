@@ -238,3 +238,42 @@ export function extractTmdbIdAndType(input?: string | null): { id: string | null
 
   return { id: null };
 }
+
+/**
+ * Resolves the active Base URL dynamically.
+ * Automatically adapts when the site is accessed on a different domain or deployment:
+ * 1. On client: reads `window.location.origin`
+ * 2. On server/build: checks environment variables (`NEXT_PUBLIC_SITE_URL`, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_URL`),
+ *    `siteConfig.url`, or falls back safely.
+ */
+export function getBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+
+  const envUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.SITE_URL ||
+    (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : null) ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    siteConfig?.url ||
+    'https://levistream.freebuff.app';
+
+  return envUrl.replace(/\/+$/, '');
+}
+
+/**
+ * Constructs an absolute URL using the active dynamic Base URL.
+ * Ensures proper formatting without duplicate slashes.
+ */
+export function getAbsoluteUrl(path: string = ''): string {
+  if (!path) return getBaseUrl();
+  const trimmed = path.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return `${getBaseUrl()}${cleanPath}`;
+}
+

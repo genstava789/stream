@@ -7,6 +7,7 @@ import {
 } from '@/lib/markdownMovies';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getImageUrl } from '@/lib/tmdb';
+import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
 import siteConfig from '@/config';
 
 export const dynamic = 'force-dynamic';
@@ -19,8 +20,6 @@ interface PageProps {
   };
 }
 
-
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const movie = await getMovieDetailsWithCustomOverride(params.id).catch(() => null);
 
@@ -30,7 +29,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || siteConfig.url;
+  const siteUrl = getBaseUrl();
   const year = movie.release_date ? new Date(movie.release_date).getFullYear() : '';
   const yearStr = year ? ` (${year})` : '';
   const creditSuffix = siteConfig.useCreditTitleForRave && siteConfig.name ? ` | ${siteConfig.name}` : '';
@@ -38,8 +37,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = `${movie.title}${yearStr} - ${siteConfig.name}`;
   const description = movie.overview ? movie.overview.slice(0, 160) : `Watch movies on ${siteConfig.name}.`;
   const videoUrl = movie.customVideoUrl || null;
-  const pageUrl = `${siteUrl}/movie/${params.id}`;
-  const embedUrl = `${siteUrl}/embed/movie/${params.id}`;
+  const pageUrl = getAbsoluteUrl(`/movie/${params.id}`);
+  const embedUrl = getAbsoluteUrl(`/embed/movie/${params.id}`);
 
   const image = movie.customImageUrl
     ? getImageUrl(movie.customImageUrl, 'w1280')
@@ -113,7 +112,7 @@ export default async function MovieEmbedPage({ params }: PageProps) {
     notFound();
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || siteConfig.url;
+  const siteUrl = getBaseUrl();
   const videoUrl = movie.customVideoUrl;
   const defaultBackdrop = movie.backdrop_path
     ? getImageUrl(movie.backdrop_path, 'original')
@@ -128,8 +127,8 @@ export default async function MovieEmbedPage({ params }: PageProps) {
   const videoDescription = movie.overview || `Streaming film ${movie.title} sub indo kualitas HD.`;
   const uploadDate = movie.release_date ? `${movie.release_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
 
-  const pageUrl = `${siteUrl}/movie/${params.id}`;
-  const embedUrl = `${siteUrl}/embed/movie/${params.id}`;
+  const pageUrl = getAbsoluteUrl(`/movie/${params.id}`);
+  const embedUrl = getAbsoluteUrl(`/embed/movie/${params.id}`);
 
   const videoObjectSchema = {
     '@context': 'https://schema.org',
@@ -146,7 +145,7 @@ export default async function MovieEmbedPage({ params }: PageProps) {
       url: siteUrl,
       logo: {
         '@type': 'ImageObject',
-        url: siteConfig.logoUrl,
+        url: getAbsoluteUrl('/logo.png'),
       },
     },
     provider: {

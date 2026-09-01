@@ -70,8 +70,12 @@ export const siteConfig = {
   tagline: 'Watch Movies & TV Shows Online',
   description:
     'Discover and explore thousands of movies and TV shows. Find trending titles, top-rated classics, and everything in between on LeviStream.',
-  url: 'https://levistream.freebuff.app',
-  logoUrl: 'https://filmes-xi-seven.vercel.app/logo.png',
+  url:
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    'https://levistream.freebuff.app',
+  logoUrl: '/logo.png',
   keywords: [
     'movies',
     'TV shows',
