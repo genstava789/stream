@@ -1,7 +1,6 @@
 ---
 tmdb_id: 1288445
-videourl: >-
-  https://huggingface.co/buckets/projectseught/video/resolve/Mutny.2026.1080p.WEB-DL.x264.6CH-Pahe.in.mkv
+videourl: 'https://ryuzakinear211.github.io/video/video'
 title: Mutiny
 deskripsi: >-
   After witnessing his billionaire boss' murder and being framed for the crime,
