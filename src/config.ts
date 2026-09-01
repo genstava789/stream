@@ -75,7 +75,7 @@ export const siteConfig = {
     process.env.BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.SITE_URL ||
-    'https://levistream.freebuff.app',
+    'https://levistrm.freebuff.app',
   logoUrl: '/logo.png',
   keywords: [
     'movies',
