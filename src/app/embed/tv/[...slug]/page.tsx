@@ -7,7 +7,7 @@ import {
 } from '@/lib/markdownTV';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getImageUrl } from '@/lib/tmdb';
-import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
+import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const isEpisodePage = params.slug.length > 1;
   const activeEpisode = data.activeEpisode || null;
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const epTitle = isEpisodePage && activeEpisode
     ? ` - ${activeEpisode.episodeLabel}: ${activeEpisode.title}`
     : '';
@@ -50,8 +50,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       (data.backdrop_path ? getImageUrl(data.backdrop_path, 'w1280') : data.poster_path ? getImageUrl(data.poster_path, 'w500') : undefined);
 
   const videoUrl = activeEpisode?.videoUrl || null;
-  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
-  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
+  const pageUrl = getServerAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   return {
     title,
@@ -122,7 +122,7 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
     notFound();
   }
 
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const videoUrl = activeEpisode.videoUrl;
   const defaultBackdrop = data.backdrop_path
     ? getImageUrl(data.backdrop_path, 'original')
@@ -138,8 +138,8 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
   const videoDescription = activeEpisode.overview || data.overview || `Streaming ${data.name} full episode sub indo.`;
   const uploadDate = data.first_air_date ? `${data.first_air_date}T00:00:00+07:00` : '2026-08-24T00:00:00+07:00';
 
-  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
-  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
+  const pageUrl = getServerAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   const videoObjectSchema = {
     '@context': 'https://schema.org',
@@ -156,7 +156,7 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
       url: siteUrl,
       logo: {
         '@type': 'ImageObject',
-        url: getAbsoluteUrl('/logo.png'),
+        url: getServerAbsoluteUrl('/logo.png'),
       },
     },
     provider: {

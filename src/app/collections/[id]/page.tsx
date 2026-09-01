@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getCollectionByIdOrSlug } from '@/lib/mongodb/collectionService';
 import CollectionDetailClient from './CollectionDetailClient';
-import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
+import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 import { getImageUrl } from '@/lib/tmdb';
 
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const itemCount = collection.itemCount || (collection.items || []).length;
   const yearSpan =
     collection.yearStart && collection.yearEnd
@@ -51,7 +51,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     openGraph: {
       title,
       description,
-      url: getAbsoluteUrl(`/collections/${collection.slug || params.id}`),
+      url: getServerAbsoluteUrl(`/collections/${collection.slug || params.id}`),
       siteName: siteConfig.name,
       images: image ? [{ url: image, width: 1280, height: 720, alt: collection.title }] : undefined,
       type: 'video.other',

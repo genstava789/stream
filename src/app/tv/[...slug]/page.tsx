@@ -15,7 +15,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import TVDetailClient, { TVDetailHeaderActions } from '@/components/TVDetailClient';
 import TVEpisodeList from '@/components/TVEpisodeList';
 import NonLocalWarning from '@/components/NonLocalWarning';
-import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
+import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
 export const dynamicParams = true;
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const isEpisodePage = params.slug.length > 1;
   const activeEpisode = data.activeEpisode || null;
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const epTitle = isEpisodePage && activeEpisode
     ? ` - ${activeEpisode.episodeLabel}: ${activeEpisode.title}`
     : '';
@@ -61,8 +61,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const videoUrl = isEpisodePage && data.activeEpisode?.videoUrl ? data.activeEpisode.videoUrl : null;
   const videoType = videoUrl && videoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
-  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
+  const pageUrl = getServerAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   return {
     title,
@@ -166,14 +166,14 @@ export default async function TVShowPage({ params }: PageProps) {
     );
   }
 
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const isEpisodePage = params.slug.length > 1;
   const activeEpisode = data.activeEpisode || null;
   const showSlug = params.slug[0];
   const videoUrl = activeEpisode?.videoUrl || null;
   const videoType = videoUrl && videoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-  const pageUrl = getAbsoluteUrl(`/tv/${params.slug.join('/')}`);
-  const embedUrl = getAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
+  const pageUrl = getServerAbsoluteUrl(`/tv/${params.slug.join('/')}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   const cast = data.credits?.cast?.slice(0, 14) || [];
   const similarShows = data.similar?.results?.slice(0, 14) || [];
@@ -231,7 +231,7 @@ export default async function TVShowPage({ params }: PageProps) {
           url: siteUrl,
           logo: {
             '@type': 'ImageObject',
-            url: getAbsoluteUrl('/logo.png'),
+            url: getServerAbsoluteUrl('/logo.png'),
           },
         },
         provider: {

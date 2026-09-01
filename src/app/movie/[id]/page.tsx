@@ -15,7 +15,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer';
 import MovieDetailClient from '@/components/MovieDetailClient';
 import VideoPlayer from '@/components/VideoPlayer';
 import NonLocalWarning from '@/components/NonLocalWarning';
-import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
+import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
 export const dynamicParams = true;
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const year = movie.release_date ? new Date(movie.release_date).getFullYear() : '';
   const yearStr = year ? ` (${year})` : '';
   const creditSuffix = siteConfig.useCreditTitleForRave && siteConfig.name ? ` | ${siteConfig.name}` : '';
@@ -48,8 +48,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const description = movie.overview ? movie.overview.slice(0, 160) : `Watch movies and stream online on ${siteConfig.name}.`;
   const videoUrl = movie.customVideoUrl || null;
   const videoType = videoUrl && videoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-  const pageUrl = getAbsoluteUrl(`/movie/${params.id}`);
-  const embedUrl = getAbsoluteUrl(`/embed/movie/${params.id}`);
+  const pageUrl = getServerAbsoluteUrl(`/movie/${params.id}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/movie/${params.id}`);
 
   const image = movie.customImageUrl
     ? (movie.customImageUrl.startsWith('http') ? movie.customImageUrl : getImageUrl(movie.customImageUrl, 'w1280'))
@@ -161,7 +161,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
     );
   }
 
-  const siteUrl = getBaseUrl();
+  const siteUrl = getServerBaseUrl();
   const director = movie.credits?.crew?.find((c) => c.job === 'Director');
   const cast = (movie.credits?.cast || []).slice(0, 10);
   const similarMovies = movie.similar?.results?.slice(0, 14) || [];
@@ -175,8 +175,8 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const trailerKey = trailer ? trailer.key : null;
   const videoUrl = movie.customVideoUrl || null;
   const videoType = videoUrl && videoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4';
-  const pageUrl = getAbsoluteUrl(`/movie/${params.id}`);
-  const embedUrl = getAbsoluteUrl(`/embed/movie/${params.id}`);
+  const pageUrl = getServerAbsoluteUrl(`/movie/${params.id}`);
+  const embedUrl = getServerAbsoluteUrl(`/embed/movie/${params.id}`);
 
   // 1. Poster for detail hero card / display (Own official data source from TMDB)
   const posterImage = movie.poster_path
@@ -221,7 +221,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
           url: siteUrl,
           logo: {
             '@type': 'ImageObject',
-            url: getAbsoluteUrl('/logo.png'),
+            url: getServerAbsoluteUrl('/logo.png'),
           },
         },
         provider: {
