@@ -9,9 +9,19 @@ function TopProgressBarContent() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const trickleIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Complete and hide progress bar on path or query param changes
   useEffect(() => {
+    if (trickleIntervalRef.current) {
+      clearInterval(trickleIntervalRef.current);
+      trickleIntervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
     setProgress(100);
     const timer = setTimeout(() => {
       setLoading(false);
@@ -41,19 +51,29 @@ function TopProgressBarContent() {
         if (isCurrent) return;
 
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (trickleIntervalRef.current) clearInterval(trickleIntervalRef.current);
 
         setLoading(true);
-        setProgress(30);
-        setTimeout(() => setProgress(70), 100);
+        setProgress(25);
 
-        // Auto-complete safety timeout (prevents hanging progress bar on client-filtered state changes)
+        // Smooth trickle progression while page is loading
+        trickleIntervalRef.current = setInterval(() => {
+          setProgress((prev) => {
+            if (prev >= 90) return prev;
+            const step = Math.max(1, (90 - prev) * 0.12);
+            return Math.min(90, prev + step);
+          });
+        }, 150);
+
+        // Extended fallback safety timeout (prevents hanging if navigation fails or is aborted)
         timeoutRef.current = setTimeout(() => {
+          if (trickleIntervalRef.current) clearInterval(trickleIntervalRef.current);
           setProgress(100);
           setTimeout(() => {
             setLoading(false);
             setProgress(0);
           }, 200);
-        }, 500);
+        }, 10000);
       }
     };
 
@@ -61,6 +81,7 @@ function TopProgressBarContent() {
     return () => {
       document.removeEventListener('click', handleAnchorClick, { capture: true });
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (trickleIntervalRef.current) clearInterval(trickleIntervalRef.current);
     };
   }, []);
 

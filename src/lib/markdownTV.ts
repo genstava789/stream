@@ -8,6 +8,7 @@ import { FeaturedItem } from '@/config';
 import { cleanVideoUrl, getTVUrl } from '@/lib/urls';
 import { getMongoTVShowBySlug, getMongoTVShows } from '@/lib/mongodb/service';
 import { isMongoConfigured } from '@/lib/mongodb/client';
+import { cache } from 'react';
 import { memoryCache } from '@/lib/cache';
 
 export interface CustomTVFrontmatter {
@@ -285,165 +286,163 @@ export async function getCustomTVShowBySlug(showSlugOrTmdbId: string | number): 
   return memoryCache.getOrFetch<CustomTVShowData | null>(
     cacheKey,
     async () => {
-      // 1. Check MongoDB first (Cloud Source of Truth)
-      if (isMongoConfigured()) {
-        try {
-          const searchStr = String(showSlugOrTmdbId).trim().toLowerCase();
-          const cleanSearch = searchStr.replace(/-(19\d{2}|20\d{2}|\d+)$/, '');
-          let mongoDoc = await getMongoTVShowBySlug(searchStr);
-          if (!mongoDoc && cleanSearch !== searchStr) {
-            mongoDoc = await getMongoTVShowBySlug(cleanSearch);
-          }
+      ensureTVDirExists();
+      const searchKey = String(showSlugOrTmdbId).trim().toLowerCase();
+      const showDirs = getAllCustomTVShowDirs();
 
-      if (mongoDoc) {
-        const episodes: CustomEpisode[] = (mongoDoc.episodes || []).map((ep) => {
-          const epNum = Number(ep.episode.replace(/\D/g, '')) || 1;
-          const seasonNum = ep.seasonFolder ? Number(ep.seasonFolder.replace(/\D/g, '')) || 1 : 1;
-          const sFolder = ep.seasonFolder || 's1';
-          const baseEp = ep.episode;
-          const epLabel = `S${seasonNum}:E${epNum}`;
-          const urlPath = `/tv/${mongoDoc!.showSlug}/${sFolder}/${baseEp}`;
+      // Extract trailing ID (e.g. "lanterns-95350" -> "95350") or strip year/ID
+      const idMatch = searchKey.match(/-(\d+)$/);
+      const trailingId = idMatch ? idMatch[1] : null;
+      const cleanWithoutSuffix = searchKey.replace(/-(19\d{2}|20\d{2}|\d+)$/, '');
 
-          return {
-            slug: `${sFolder}/${baseEp}`,
-            filename: `${baseEp}.md`,
-            seasonNumber: seasonNum,
-            seasonFolder: sFolder,
-            episodeNumber: epNum,
-            episodeLabel: epLabel,
-            title: ep.title,
-            videoUrl: ep.videourl || null,
-            imageUrl: ep.image_url || mongoDoc!.image_url || null,
-            overview: ep.deskripsi || '',
-            rating: ep.rating || null,
-            duration: ep.duration || null,
-            subtitles: ep.subtitles || null,
-            contentHtml: ep.content ? (marked.parse(ep.content) as string) : null,
-            rawContent: ep.content || '',
-            urlPath,
-            frontmatter: {
-              title: ep.title,
-              videourl: ep.videourl,
-              image_url: ep.image_url,
-              deskripsi: ep.deskripsi,
-              rating: ep.rating,
-              duration: ep.duration,
-              subtitles: ep.subtitles,
-            },
-          };
-        });
+      let matchedDir: string | null = null;
+      let showDirFullPath = '';
 
-        // Group into seasons
-        const seasonsMap = new Map<number, CustomEpisode[]>();
-        episodes.forEach((ep) => {
-          const sNum = ep.seasonNumber || 1;
-          if (!seasonsMap.has(sNum)) {
-            seasonsMap.set(sNum, []);
-          }
-          seasonsMap.get(sNum)!.push(ep);
-        });
-
-        const seasons: CustomSeason[] = Array.from(seasonsMap.entries())
-          .map(([sNum, eps]) => ({
-            seasonNumber: sNum,
-            seasonName: `Season ${sNum}`,
-            seasonFolder: eps[0]?.seasonFolder || `s${sNum}`,
-            episodes: eps,
-          }))
-          .sort((a, b) => (a.seasonNumber || 0) - (b.seasonNumber || 0));
-
-        const showHtml = mongoDoc.content ? (marked.parse(mongoDoc.content) as string) : null;
-
-        return {
-          slug: mongoDoc.showSlug,
-          dirName: mongoDoc.showSlug,
-          showSlug: mongoDoc.showSlug,
-          hasSeasons: seasons.length > 0,
-          frontmatter: {
-            title: mongoDoc.title,
-            tmdb_id: mongoDoc.tmdb_id,
-            image_url: mongoDoc.image_url,
-            deskripsi: mongoDoc.deskripsi,
-            rating: mongoDoc.rating,
-            featured: mongoDoc.featured,
-          },
-          contentHtml: showHtml,
-          rawContent: mongoDoc.content || '',
-          seasons,
-          allEpisodes: episodes,
-        };
-      }
-      return null;
-    } catch (mErr) {
-      console.warn('[markdownTV] MongoDB getCustomTVShowBySlug notice:', mErr);
-    }
-  }
-
-  ensureTVDirExists();
-  const searchKey = String(showSlugOrTmdbId).trim().toLowerCase();
-  const showDirs = await getAllCustomTVShowDirsAsync();
-
-  // Extract trailing ID (e.g. "lanterns-95350" -> "95350") or strip year/ID
-  const idMatch = searchKey.match(/-(\d+)$/);
-  const trailingId = idMatch ? idMatch[1] : null;
-  const cleanWithoutSuffix = searchKey.replace(/-(19\d{2}|20\d{2}|\d+)$/, '');
-
-  let matchedDir: string | null = null;
-  let showDirFullPath = '';
-
-  // 1. Direct directory match (e.g. "lanterns" or "lanterns-2026" matching "lanterns")
-  for (const dir of showDirs) {
-    const dirLower = dir.toLowerCase();
-    if (dirLower === searchKey || dirLower === cleanWithoutSuffix) {
-      matchedDir = dir;
-      showDirFullPath = path.join(TV_CONTENT_DIR, dir);
-      break;
-    }
-  }
-
-  // 2. Search by tmdb_id, title slug, or trailing ID in _index.md
-  if (!matchedDir) {
-    for (const dir of showDirs) {
-      const indexContent =
-        getRawTVFileContent(`tv/${dir}/_index.md`) ||
-        getRawTVFileContent(`tv/${dir}/index.md`);
-
-      if (indexContent) {
-        try {
-          const { data } = matter(indexContent);
-          if (data) {
-            const tmdbIdStr = String(data.tmdb_id || '').trim();
-            const titleSlug = cleanSlug(data.title || data.name);
-
-            // Direct TMDB ID or trailing ID match
-            if (tmdbIdStr && (tmdbIdStr === searchKey || tmdbIdStr === trailingId)) {
-              matchedDir = dir;
-              showDirFullPath = path.join(TV_CONTENT_DIR, dir);
-              break;
-            }
-
-            // Title slug match (e.g. "lanterns" or "lanterns-2026")
-            if (
-              titleSlug &&
-              (titleSlug === searchKey ||
-                titleSlug === cleanWithoutSuffix ||
-                searchKey.startsWith(titleSlug))
-            ) {
-              matchedDir = dir;
-              showDirFullPath = path.join(TV_CONTENT_DIR, dir);
-              break;
-            }
-          }
-        } catch (e) {
-          console.error(`Error reading index for ${dir}:`, e);
+      // 1. Direct directory match (e.g. "lanterns" or "lanterns-2026" matching "lanterns")
+      for (const dir of showDirs) {
+        const dirLower = dir.toLowerCase();
+        if (dirLower === searchKey || dirLower === cleanWithoutSuffix) {
+          matchedDir = dir;
+          showDirFullPath = path.join(TV_CONTENT_DIR, dir);
+          break;
         }
       }
-    }
-  }
 
-  if (!matchedDir) {
-    return null;
-  }
+      // 2. Search by tmdb_id, title slug, or trailing ID in _index.md
+      if (!matchedDir) {
+        for (const dir of showDirs) {
+          const indexContent =
+            getRawTVFileContent(`tv/${dir}/_index.md`) ||
+            getRawTVFileContent(`tv/${dir}/index.md`);
+
+          if (indexContent) {
+            try {
+              const { data } = matter(indexContent);
+              if (data) {
+                const tmdbIdStr = String(data.tmdb_id || '').trim();
+                const titleSlug = cleanSlug(data.title || data.name);
+
+                // Direct TMDB ID or trailing ID match
+                if (tmdbIdStr && (tmdbIdStr === searchKey || tmdbIdStr === trailingId)) {
+                  matchedDir = dir;
+                  showDirFullPath = path.join(TV_CONTENT_DIR, dir);
+                  break;
+                }
+
+                // Title slug match (e.g. "lanterns" or "lanterns-2026")
+                if (
+                  titleSlug &&
+                  (titleSlug === searchKey ||
+                    titleSlug === cleanWithoutSuffix ||
+                    searchKey.startsWith(titleSlug))
+                ) {
+                  matchedDir = dir;
+                  showDirFullPath = path.join(TV_CONTENT_DIR, dir);
+                  break;
+                }
+              }
+            } catch (e) {
+              console.error(`Error reading index for ${dir}:`, e);
+            }
+          }
+        }
+      }
+
+      // ── If not found in local files, check MongoDB as Cloud Fallback ──
+      if (!matchedDir) {
+        if (isMongoConfigured()) {
+          try {
+            const cleanSearch = searchKey.replace(/-(19\d{2}|20\d{2}|\d+)$/, '');
+            let mongoDoc = await getMongoTVShowBySlug(searchKey);
+            if (!mongoDoc && cleanSearch !== searchKey) {
+              mongoDoc = await getMongoTVShowBySlug(cleanSearch);
+            }
+
+            if (mongoDoc) {
+              const episodes: CustomEpisode[] = (mongoDoc.episodes || []).map((ep) => {
+                const epNum = Number(ep.episode.replace(/\D/g, '')) || 1;
+                const seasonNum = ep.seasonFolder ? Number(ep.seasonFolder.replace(/\D/g, '')) || 1 : 1;
+                const sFolder = ep.seasonFolder || 's1';
+                const baseEp = ep.episode;
+                const epLabel = `S${seasonNum}:E${epNum}`;
+                const urlPath = `/tv/${mongoDoc!.showSlug}/${sFolder}/${baseEp}`;
+
+                return {
+                  slug: `${sFolder}/${baseEp}`,
+                  filename: `${baseEp}.md`,
+                  seasonNumber: seasonNum,
+                  seasonFolder: sFolder,
+                  episodeNumber: epNum,
+                  episodeLabel: epLabel,
+                  title: ep.title,
+                  videoUrl: ep.videourl || null,
+                  imageUrl: ep.image_url || mongoDoc!.image_url || null,
+                  overview: ep.deskripsi || '',
+                  rating: ep.rating || null,
+                  duration: ep.duration || null,
+                  subtitles: ep.subtitles || null,
+                  contentHtml: ep.content ? (marked.parse(ep.content) as string) : null,
+                  rawContent: ep.content || '',
+                  urlPath,
+                  frontmatter: {
+                    title: ep.title,
+                    videourl: ep.videourl,
+                    image_url: ep.image_url,
+                    deskripsi: ep.deskripsi,
+                    rating: ep.rating,
+                    duration: ep.duration,
+                    subtitles: ep.subtitles,
+                  },
+                };
+              });
+
+              // Group into seasons
+              const seasonsMap = new Map<number, CustomEpisode[]>();
+              episodes.forEach((ep) => {
+                const sNum = ep.seasonNumber || 1;
+                if (!seasonsMap.has(sNum)) {
+                  seasonsMap.set(sNum, []);
+                }
+                seasonsMap.get(sNum)!.push(ep);
+              });
+
+              const seasons: CustomSeason[] = Array.from(seasonsMap.entries())
+                .map(([sNum, eps]) => ({
+                  seasonNumber: sNum,
+                  seasonName: `Season ${sNum}`,
+                  seasonFolder: eps[0]?.seasonFolder || `s${sNum}`,
+                  episodes: eps,
+                }))
+                .sort((a, b) => (a.seasonNumber || 0) - (b.seasonNumber || 0));
+
+              const showHtml = mongoDoc.content ? (marked.parse(mongoDoc.content) as string) : null;
+
+              return {
+                slug: mongoDoc.showSlug,
+                dirName: mongoDoc.showSlug,
+                showSlug: mongoDoc.showSlug,
+                hasSeasons: seasons.length > 0,
+                frontmatter: {
+                  title: mongoDoc.title,
+                  tmdb_id: mongoDoc.tmdb_id,
+                  image_url: mongoDoc.image_url,
+                  deskripsi: mongoDoc.deskripsi,
+                  rating: mongoDoc.rating,
+                  featured: mongoDoc.featured,
+                },
+                contentHtml: showHtml,
+                rawContent: mongoDoc.content || '',
+                seasons,
+                allEpisodes: episodes,
+              };
+            }
+          } catch (mErr) {
+            console.warn('[markdownTV] MongoDB getCustomTVShowBySlug notice:', mErr);
+          }
+        }
+
+        return null;
+      }
 
   // Read _index.md
   let indexFrontmatter: CustomTVFrontmatter = { tmdb_id: 0 };
@@ -705,7 +704,7 @@ export async function getCustomTVShowBySlug(showSlugOrTmdbId: string | number): 
 /**
  * Fetches TMDB TV Show details and merges with custom markdown TV data and active episode.
  */
-export async function getTVShowDetailsWithCustomOverride(
+export const getTVShowDetailsWithCustomOverride = cache(async function getTVShowDetailsWithCustomOverride(
   slugArray: string[]
 ): Promise<MergedTVShowDetail | null> {
   if (!slugArray || slugArray.length === 0) return null;
@@ -839,7 +838,7 @@ export async function getTVShowDetailsWithCustomOverride(
     60_000,
     15_000
   );
-}
+});
 
 /**
  * Returns a mapping of tmdb_id -> custom TV show slug (e.g. { 95350: 'lanterns' }).

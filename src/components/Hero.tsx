@@ -368,6 +368,7 @@ export default function Hero({
             <div className="flex items-center gap-2.5 sm:gap-3.5 mb-2 sm:mb-3">
               <Link
                 href={currentItem.link || '/'}
+                prefetch={true}
                 className="inline-flex items-center gap-2 px-5 py-2 xs:px-6 xs:py-2.5 sm:px-7 sm:py-3 rounded-xl font-extrabold text-xs xs:text-sm sm:text-base transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg"
                 style={{
                   background: btnBg,

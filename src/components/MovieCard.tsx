@@ -39,6 +39,7 @@ export default function MovieCard({ item, type, priority = false }: MovieCardPro
   return (
     <Link
       href={href}
+      prefetch={true}
       className="group/card block w-full select-none"
     >
       {/* ── Poster Wrapper ── */}
