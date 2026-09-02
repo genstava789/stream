@@ -5,6 +5,7 @@ import {
   createAdminContent,
   updateAdminContent,
   deleteAdminContent,
+  selectiveRevalidateAll,
 } from '@/lib/admin/cmsService';
 
 export const dynamic = 'force-dynamic';
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
     const ghConfig = getGitHubConfigFromRequest(request);
     const body = await request.json();
     const result = await createAdminContent(body, ghConfig);
+    selectiveRevalidateAll();
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[API Content POST] Error:', error);
@@ -56,6 +58,7 @@ export async function PUT(request: NextRequest) {
     const ghConfig = getGitHubConfigFromRequest(request);
     const body = await request.json();
     const result = await updateAdminContent(body, ghConfig);
+    selectiveRevalidateAll();
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[API Content PUT] Error:', error);
@@ -92,6 +95,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const result = await deleteAdminContent(pathsToDelete, ghConfig);
+    selectiveRevalidateAll();
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[API Content DELETE] Error:', error);

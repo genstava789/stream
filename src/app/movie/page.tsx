@@ -5,7 +5,8 @@ import { getAllCustomMoviesForList } from '@/lib/markdownMovies';
 import { getGenres } from '@/lib/tmdb';
 import siteConfig from '@/config';
 
-export const revalidate = 15;
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: `Browse Movies - ${siteConfig.name}`,

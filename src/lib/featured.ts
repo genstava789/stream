@@ -168,7 +168,18 @@ export async function getEnrichedFeaturedMovies(options: {
         }
       }
 
-      return customMovies.slice(0, limit);
+      // Strict deduplication by TMDB ID, slug, and normalized title
+      const seenKeys = new Set<string>();
+      const deduplicated: FeaturedItem[] = [];
+      for (const item of customMovies) {
+        const key = String(item.tmdbId || item.id || normalizeTitle(item.title || '')).toLowerCase().trim();
+        if (key && !seenKeys.has(key)) {
+          seenKeys.add(key);
+          deduplicated.push(item);
+        }
+      }
+
+      return deduplicated.slice(0, limit);
     },
     60_000,
     15_000
@@ -237,7 +248,18 @@ export async function getEnrichedFeaturedTV(options: {
         }
       }
 
-      return customTV.slice(0, limit);
+      // Strict deduplication by TMDB ID, slug, and normalized title
+      const seenKeys = new Set<string>();
+      const deduplicated: FeaturedItem[] = [];
+      for (const item of customTV) {
+        const key = String(item.tmdbId || item.id || normalizeTitle(item.title || '')).toLowerCase().trim();
+        if (key && !seenKeys.has(key)) {
+          seenKeys.add(key);
+          deduplicated.push(item);
+        }
+      }
+
+      return deduplicated.slice(0, limit);
     },
     60_000,
     15_000

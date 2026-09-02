@@ -33,65 +33,77 @@ export default function Hero({
 }: HeroProps) {
   const isTV = type === 'tv' || (tvShows && tvShows.length > 0) || Boolean(tvShow);
 
-  // Build items list: strictly prioritize customFeaturedItems if passed
+  // Build items list: strictly prioritize customFeaturedItems if passed and deduplicate
   const items: FeaturedItem[] = React.useMemo(() => {
+    let sourceList: FeaturedItem[] = [];
+
     if (customFeaturedItems !== undefined && customFeaturedItems.length > 0) {
-      return customFeaturedItems;
+      sourceList = customFeaturedItems;
+    } else if (siteConfig.featuredItems && siteConfig.featuredItems.length > 0 && !isTV) {
+      sourceList = siteConfig.featuredItems;
+    } else {
+      // Fallback using incoming movies or tv shows (only if customFeaturedItems was not provided)
+      const sourceItems = isTV
+        ? (tvShows && tvShows.length > 0 ? tvShows.slice(0, 5) : tvShow ? [tvShow] : [])
+        : (movies && movies.length > 0 ? movies.slice(0, 5) : movie ? [movie] : []);
+
+      sourceList = (sourceItems as any[]).map((m) => {
+        const itemGenres = genres.filter((g) => m.genre_ids?.includes(g.id)).map((g) => g.name);
+        const backdrop = m.backdrop_path
+          ? getImageUrl(m.backdrop_path, 'original')
+          : m.poster_path
+          ? getImageUrl(m.poster_path, 'original')
+          : '/placeholder-poster.svg';
+        const poster = m.poster_path
+          ? getImageUrl(m.poster_path, 'w500')
+          : m.backdrop_path
+          ? getImageUrl(m.backdrop_path, 'original')
+          : '/placeholder-poster.svg';
+
+        const itemTitle = m.title || m.name || 'Featured';
+        const itemYear = m.release_date
+          ? new Date(m.release_date).getFullYear()
+          : m.first_air_date
+          ? new Date(m.first_air_date).getFullYear()
+          : '2025';
+        const itemLink = isTV ? getTVUrl(m) : getMovieUrl(m);
+
+        const bestLogo = m.images?.logos?.find((l: any) => l.iso_639_1 === 'en' || l.iso_639_1 === 'id' || !l.iso_639_1) || m.images?.logos?.[0];
+        const logoUrl = bestLogo?.file_path ? getImageUrl(bestLogo.file_path, 'original') : undefined;
+
+        const trailer = m.videos?.results?.find((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')) || m.videos?.results?.find((v: any) => v.site === 'YouTube');
+        const trailerKey = trailer?.key || undefined;
+
+        return {
+          id: m.id,
+          tmdbId: m.id,
+          title: itemTitle,
+          overview: m.overview,
+          backdropUrl: backdrop,
+          posterUrl: poster,
+          logoUrl,
+          trailerKey,
+          rating: Math.round((m.vote_average || 8) * 10) / 10,
+          year: itemYear,
+          type: isTV ? ('tv' as const) : ('movie' as const),
+          genres: itemGenres.slice(0, 3),
+          link: itemLink,
+          badge: badgeText || (isTV ? 'Featured Series' : 'Featured'),
+        };
+      });
     }
 
-    if (siteConfig.featuredItems && siteConfig.featuredItems.length > 0 && !isTV) {
-      return siteConfig.featuredItems;
+    // Strict deduplication by TMDB ID, slug, and title
+    const seen = new Set<string>();
+    const deduplicated: FeaturedItem[] = [];
+    for (const item of sourceList) {
+      const key = String(item.tmdbId || item.id || item.title || '').toLowerCase().trim();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        deduplicated.push(item);
+      }
     }
-
-    // Fallback using incoming movies or tv shows (only if customFeaturedItems was not provided)
-    const sourceItems = isTV
-      ? (tvShows && tvShows.length > 0 ? tvShows.slice(0, 5) : tvShow ? [tvShow] : [])
-      : (movies && movies.length > 0 ? movies.slice(0, 5) : movie ? [movie] : []);
-
-    return (sourceItems as any[]).map((m) => {
-      const itemGenres = genres.filter((g) => m.genre_ids?.includes(g.id)).map((g) => g.name);
-      const backdrop = m.backdrop_path
-        ? getImageUrl(m.backdrop_path, 'original')
-        : m.poster_path
-        ? getImageUrl(m.poster_path, 'original')
-        : '/placeholder-poster.svg';
-      const poster = m.poster_path
-        ? getImageUrl(m.poster_path, 'w500')
-        : m.backdrop_path
-        ? getImageUrl(m.backdrop_path, 'original')
-        : '/placeholder-poster.svg';
-
-      const itemTitle = m.title || m.name || 'Featured';
-      const itemYear = m.release_date
-        ? new Date(m.release_date).getFullYear()
-        : m.first_air_date
-        ? new Date(m.first_air_date).getFullYear()
-        : '2025';
-      const itemLink = isTV ? getTVUrl(m) : getMovieUrl(m);
-
-      const bestLogo = m.images?.logos?.find((l: any) => l.iso_639_1 === 'en' || l.iso_639_1 === 'id' || !l.iso_639_1) || m.images?.logos?.[0];
-      const logoUrl = bestLogo?.file_path ? getImageUrl(bestLogo.file_path, 'original') : undefined;
-
-      const trailer = m.videos?.results?.find((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')) || m.videos?.results?.find((v: any) => v.site === 'YouTube');
-      const trailerKey = trailer?.key || undefined;
-
-      return {
-        id: m.id,
-        tmdbId: m.id,
-        title: itemTitle,
-        overview: m.overview,
-        backdropUrl: backdrop,
-        posterUrl: poster,
-        logoUrl,
-        trailerKey,
-        rating: Math.round((m.vote_average || 8) * 10) / 10,
-        year: itemYear,
-        type: isTV ? ('tv' as const) : ('movie' as const),
-        genres: itemGenres.slice(0, 3),
-        link: itemLink,
-        badge: badgeText || (isTV ? 'Featured Series' : 'Featured'),
-      };
-    });
+    return deduplicated;
   }, [customFeaturedItems, movies, movie, tvShows, tvShow, genres, isTV, badgeText]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -203,7 +215,7 @@ export default function Hero({
         const bgImage = getImageUrl(rawBg, 'original');
         return (
           <div
-            key={item.id || idx}
+            key={`${item.id || item.tmdbId || item.title || 'slide'}-${idx}`}
             onClick={() => {
               if (isCurrent && item.trailerKey && !isPlayingTrailer) {
                 setIsPlayingTrailer(true);

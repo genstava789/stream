@@ -6,7 +6,8 @@ import { getEnrichedFeaturedMovies } from '@/lib/featured';
 import { getResolvedSections } from '@/lib/sections';
 import siteConfig from '@/config';
 
-export const revalidate = 15;
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function HomePage() {
   const [genresData, featuredItems, sections] = await Promise.all([

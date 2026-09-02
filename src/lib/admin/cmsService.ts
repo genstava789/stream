@@ -66,7 +66,7 @@ export function getGitHubConfigFromRequest(req: Request): GitHubOptions {
  * Only invalidates markdown and content provider cache without purging TMDB API responses.
  * Ensures the homepage loads in < 20ms instead of 1-3 seconds of remote TMDB latency!
  */
-export function selectiveRevalidateAll() {
+export function selectiveRevalidateAll(targetSlug?: string) {
   try {
     // 1. Invalidate only local markdown, mongo, admin, custom & featured caches
     memoryCache.invalidate('markdown_');
@@ -79,6 +79,10 @@ export function selectiveRevalidateAll() {
     memoryCache.invalidate('admin_');
     memoryCache.invalidate('bucket_');
     memoryCache.invalidate('hero_');
+    memoryCache.invalidate('featured_custom_movies_list');
+    memoryCache.invalidate('featured_custom_tv_list');
+    memoryCache.invalidate('all_custom_movies_list');
+    memoryCache.invalidate('all_custom_tv_list');
 
     // 2. Invalidate content provider in-memory registry
     try {
@@ -88,21 +92,39 @@ export function selectiveRevalidateAll() {
     // 3. Invalidate Next.js cache tags
     // @ts-ignore
     if (typeof revalidateTag === 'function') {
-      // @ts-ignore
-      revalidateTag('github-content');
+      try {
+        // @ts-ignore
+        revalidateTag('github-content');
+        // @ts-ignore
+        revalidateTag('featured');
+        // @ts-ignore
+        revalidateTag('content');
+        // @ts-ignore
+        revalidateTag('sections');
+        // @ts-ignore
+        revalidateTag('movies');
+        // @ts-ignore
+        revalidateTag('tv_shows');
+      } catch {}
     }
 
     // 4. Trigger on-demand Next.js route ISR revalidations
-    revalidatePath('/', 'page');
-    revalidatePath('/', 'layout');
-    revalidatePath('/movie', 'page');
-    revalidatePath('/movie/[id]', 'page');
-    revalidatePath('/tv', 'page');
-    revalidatePath('/tv/browse', 'page');
-    revalidatePath('/tv/[...slug]', 'page');
-    revalidatePath('/embed/movie/[id]', 'page');
-    revalidatePath('/embed/tv/[...slug]', 'page');
-    revalidatePath('/admin', 'page');
+    try {
+      revalidatePath('/', 'page');
+      revalidatePath('/', 'layout');
+      revalidatePath('/movie', 'page');
+      revalidatePath('/movie/[id]', 'page');
+      revalidatePath('/tv', 'page');
+      revalidatePath('/tv/browse', 'page');
+      revalidatePath('/tv/[...slug]', 'page');
+      revalidatePath('/embed/movie/[id]', 'page');
+      revalidatePath('/embed/tv/[...slug]', 'page');
+      revalidatePath('/admin', 'page');
+      if (targetSlug) {
+        revalidatePath(`/movie/${targetSlug}`, 'page');
+        revalidatePath(`/tv/${targetSlug}`, 'page');
+      }
+    } catch {}
   } catch (err) {
     console.warn('[cmsService] Revalidation notice:', err);
   }

@@ -987,7 +987,7 @@ export async function getAllFeaturedCustomTV(): Promise<FeaturedItem[]> {
           showDocs = diskShows.filter((s) => Boolean(s.featured));
         }
 
-        return await Promise.all(
+        const mappedItems = await Promise.all(
           showDocs.map(async (s) => {
             let overview = (s.deskripsi || (s as any).description || '').trim();
             let rating = s.rating || 0;
@@ -1056,6 +1056,18 @@ export async function getAllFeaturedCustomTV(): Promise<FeaturedItem[]> {
             } as FeaturedItem;
           })
         );
+
+        // Deduplicate
+        const seen = new Set<string>();
+        const uniqueItems: FeaturedItem[] = [];
+        for (const item of mappedItems) {
+          const key = String(item.tmdbId || item.id || item.title || '').toLowerCase().trim();
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            uniqueItems.push(item);
+          }
+        }
+        return uniqueItems;
       } catch (err) {
         console.warn('[markdownTV] getAllFeaturedCustomTV error:', err);
         return [];

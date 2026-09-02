@@ -651,7 +651,7 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
           movieDocs = diskMovies.filter((m) => Boolean(m.featured));
         }
 
-        return await Promise.all(
+        const mappedItems = await Promise.all(
           movieDocs.map(async (m) => {
             let overview = (m.deskripsi || (m as any).description || '').trim();
             let rating = m.rating || 0;
@@ -718,6 +718,18 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
             } as FeaturedItem;
           })
         );
+
+        // Deduplicate
+        const seen = new Set<string>();
+        const uniqueItems: FeaturedItem[] = [];
+        for (const item of mappedItems) {
+          const key = String(item.tmdbId || item.id || item.title || '').toLowerCase().trim();
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            uniqueItems.push(item);
+          }
+        }
+        return uniqueItems;
       } catch (err) {
         console.warn('[markdownMovies] getAllFeaturedCustomMovies error:', err);
         return [];
