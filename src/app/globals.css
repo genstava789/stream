@@ -844,17 +844,26 @@ input:focus-visible {
   display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
+  pointer-events: auto !important;
   z-index: 35 !important;
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
 }
 
-.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid,
-.plyr-custom-wrapper .plyr.plyr--playing .plyr__loading {
+.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Ensure controls play/pause button is always visible and accessible */
+.plyr-custom-wrapper .plyr__controls [data-plyr='play'] {
+  display: inline-flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
 }
 
 /* =========================================================================

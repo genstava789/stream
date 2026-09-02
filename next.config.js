@@ -49,6 +49,27 @@ const nextConfig = {
       },
     ];
   },
+
+  // Redirect /video/:slug to /movie/:slug for convenience
+  async redirects() {
+    return [
+      {
+        source: '/video/toy-story5',
+        destination: '/movie/toy-story-5',
+        permanent: false,
+      },
+      {
+        source: '/video/Transformers',
+        destination: '/movie/transformers',
+        permanent: false,
+      },
+      {
+        source: '/video/:slug',
+        destination: '/movie/:slug',
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

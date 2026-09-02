@@ -161,7 +161,7 @@ export default function VideoPlayer({
   const [nextCountdown, setNextCountdown] = useState(8);
   const [isMounted, setIsMounted] = useState(false);
   const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>([]);
-
+  const [subtitlesLoaded, setSubtitlesLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
@@ -207,72 +207,81 @@ export default function VideoPlayer({
   useEffect(() => {
     let isCancelled = false;
     const blobUrls: string[] = [];
+    setSubtitlesLoaded(false);
 
     const loadSubtitles = async () => {
-      let items = normalizeSubtitles();
+      try {
+        let items = normalizeSubtitles();
 
-      // If no external subtitle provided (e.g. MKV container or TV episodes),
-      // read embedded container subtitle metadata in order with default track first
-      if (items.length === 0 && effectiveVideoUrl) {
-        try {
-          const infoRes = await fetch(`/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&info=true`);
-          if (infoRes.ok) {
-            const data = await infoRes.json();
-            if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
-              items = data.tracks.map((t: any) => ({
-                src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&track=${t.trackNumber}`,
-                label: t.label || (t.language === 'id' ? 'Bahasa Indonesia' : `Subtitle ${t.order}`),
-                srcLang: t.language || 'id',
-                default: Boolean(t.isDefault),
-              }));
+        // If no external subtitle provided (e.g. MKV container or TV episodes),
+        // read embedded container subtitle metadata in order with default track first
+        if (items.length === 0 && effectiveVideoUrl) {
+          try {
+            const infoRes = await fetch(`/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&info=true`);
+            if (infoRes.ok) {
+              const data = await infoRes.json();
+              if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
+                items = data.tracks.map((t: any) => ({
+                  src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&track=${t.trackNumber}`,
+                  label: t.label || (t.language === 'id' ? 'Bahasa Indonesia' : t.language === 'en' ? 'English' : `Subtitle ${t.order}`),
+                  srcLang: t.language || 'id',
+                  default: Boolean(t.isDefault),
+                }));
+              }
             }
+          } catch (e) {
+            console.warn('Could not read container subtitle metadata:', e);
           }
-        } catch (e) {
-          console.warn('Could not read container subtitle metadata:', e);
+
+          // Fallback default track if info fetch failed
+          if (items.length === 0) {
+            items = [
+              {
+                src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
+                label: 'Bahasa Indonesia',
+                srcLang: 'id',
+                default: true,
+              },
+            ];
+          }
         }
 
-        // Fallback default track if info fetch failed
-        if (items.length === 0) {
-          items = [
-            {
-              src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
-              label: 'Bahasa Indonesia',
-              srcLang: 'id',
-              default: true,
-            },
-          ];
-        }
-      }
-
-      // Convert all subtitles to in-memory Blob URLs stored purely in browser memory
-      const updated: SubtitleTrackItem[] = [];
-      for (const item of items) {
-        if (!item.src) continue;
-        try {
-          const res = await fetch(item.src);
-          if (res.ok) {
-            let text = await res.text();
-            if (item.src.toLowerCase().includes('.srt')) {
-              text = srtToVtt(text);
+        // Convert all subtitles to in-memory Blob URLs stored purely in browser memory
+        const updated: SubtitleTrackItem[] = [];
+        for (const item of items) {
+          if (!item.src) continue;
+          try {
+            const res = await fetch(item.src);
+            if (res.ok) {
+              let text = await res.text();
+              if (item.src.toLowerCase().includes('.srt')) {
+                text = srtToVtt(text);
+              }
+              // Create in-memory Blob URL purely in browser memory (ephemeral RAM)
+              const blob = new Blob([text], { type: 'text/vtt;charset=utf-8' });
+              const blobUrl = URL.createObjectURL(blob);
+              blobUrls.push(blobUrl);
+              updated.push({
+                ...item,
+                src: blobUrl,
+              });
+              continue;
             }
-            // Create in-memory Blob URL purely in browser memory (ephemeral RAM)
-            const blob = new Blob([text], { type: 'text/vtt;charset=utf-8' });
-            const blobUrl = URL.createObjectURL(blob);
-            blobUrls.push(blobUrl);
-            updated.push({
-              ...item,
-              src: blobUrl,
-            });
-            continue;
+          } catch (e) {
+            console.warn('Could not store subtitle in browser memory:', e);
           }
-        } catch (e) {
-          console.warn('Could not store subtitle in browser memory:', e);
+          updated.push(item);
         }
-        updated.push(item);
-      }
 
-      if (!isCancelled) {
-        setResolvedSubtitles(updated);
+        if (!isCancelled) {
+          setResolvedSubtitles(updated);
+        }
+      } catch (err) {
+        console.warn('Could not load subtitles:', err);
+      } finally {
+        if (!isCancelled) {
+          setSubtitlesLoaded(true);
+        }
       }
     };
 
@@ -295,6 +304,7 @@ export default function VideoPlayer({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (youtubeId || vimeoId) return;
+    if (!subtitlesLoaded) return;
 
     let isCancelled = false;
     const abortController = new AbortController();
@@ -386,7 +396,7 @@ export default function VideoPlayer({
         });
       }
 
-      // Auto-enable Indonesian or first available caption by default
+      // Auto-enable Indonesian caption by default on HLS
       if (found.length > 0) {
         const indoTrack = found.find(
           (t) =>
@@ -395,16 +405,10 @@ export default function VideoPlayer({
             t.label.toLowerCase().includes('indo')
         );
         const chosen = indoTrack || found[0];
-        if (chosen) {
-          if (chosen.type === 'native' && typeof chosen.trackIndex === 'number' && videoElement.textTracks) {
-            try {
-              videoElement.textTracks[chosen.trackIndex].mode = 'showing';
-            } catch (e) {}
-          } else if (chosen.type === 'hls' && typeof chosen.trackIndex === 'number' && hlsInstance) {
-            try {
-              hlsInstance.subtitleTrack = chosen.trackIndex;
-            } catch (e) {}
-          }
+        if (chosen && chosen.type === 'hls' && typeof chosen.trackIndex === 'number' && hlsInstance) {
+          try {
+            hlsInstance.subtitleTrack = chosen.trackIndex;
+          } catch (e) {}
         }
       }
     };
@@ -420,25 +424,6 @@ export default function VideoPlayer({
         scanSubtitleTracks(hlsInstanceRef.current);
       });
     }
-
-
-
-    const refreshActiveCaptions = () => {
-      if (!videoElement) return;
-      const tracks = videoElement.textTracks;
-      if (!tracks || tracks.length === 0) return;
-
-      for (let i = 0; i < tracks.length; i++) {
-        const track = tracks[i];
-        if (track.mode === 'showing' || track.mode === 'hidden') {
-          try {
-            track.dispatchEvent(new Event('cuechange'));
-          } catch (e) {}
-        }
-      }
-    };
-
-
 
     const initModules = async () => {
       try {
@@ -505,7 +490,7 @@ export default function VideoPlayer({
           captions: {
             active: true,
             language: 'id',
-            update: true,
+            update: false,
           },
           seekTime: 10,
           speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
@@ -514,30 +499,8 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
-        // Ensure default subtitle track is active and displaying
-        const ensureCaptionsActive = () => {
-          try {
-            if (player.captions) {
-              const tracks = videoRef.current?.textTracks;
-              if (tracks && tracks.length > 0) {
-                if (tracks[0].mode !== 'showing') {
-                  tracks[0].mode = 'showing';
-                }
-              }
-              if (typeof player.currentTrack === 'number' && player.currentTrack < 0) {
-                player.currentTrack = 0;
-              }
-            }
-          } catch (e) {}
-        };
-
-        player.on('ready', () => {
-          ensureCaptionsActive();
-        });
-
         player.on('canplay', () => {
           setIsBuffering(false);
-          ensureCaptionsActive();
         });
 
         player.on('canplaythrough', () => {
@@ -549,25 +512,20 @@ export default function VideoPlayer({
           setIsPlaying(true);
           setIsBuffering(false);
           setShowResumePrompt(false);
-          ensureCaptionsActive();
         });
 
         player.on('playing', () => {
           setIsPlaying(true);
           setIsBuffering(false);
           setShowResumePrompt(false);
-          ensureCaptionsActive();
         });
 
         player.on('seeking', () => {
           setShowResumePrompt(false);
-          refreshActiveCaptions();
         });
 
         player.on('seeked', () => {
           setIsBuffering(false);
-          refreshActiveCaptions();
-          ensureCaptionsActive();
         });
 
         player.on('pause', () => {
@@ -584,7 +542,6 @@ export default function VideoPlayer({
         // Track and persist playback progress
         player.on('timeupdate', () => {
           setIsBuffering(false);
-          refreshActiveCaptions();
           const cur = Math.floor(player.currentTime);
           const dur = Math.floor(player.duration || 0);
 
@@ -649,7 +606,7 @@ export default function VideoPlayer({
         videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
       }
     };
-  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv, onNextEpisode]);
+  }, [effectiveVideoUrl, subtitlesLoaded, youtubeId, vimeoId, storageKey, isHls, isMkv, onNextEpisode]);
 
   // Next episode countdown timer
   useEffect(() => {
@@ -959,43 +916,34 @@ export default function VideoPlayer({
                 className="w-full h-full border-0"
               />
             ) : (
-              /* Declarative <video> tag in JSX isolated with key */
+              /* Declarative <video> tag in JSX */
               <div
-                key={`${effectiveVideoUrl}_${title || ''}`}
                 className="w-full h-full flex items-center justify-center plyr-custom-wrapper bg-black overflow-hidden"
               >
                 <video
                   ref={videoRef}
                   src={effectiveVideoUrl}
-                  className="plyr-react plyr w-full h-full object-cover"
+                  className="plyr-react w-full h-full object-cover"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
                 >
-                  <source
-                    src={effectiveVideoUrl}
-                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
-                  />
-                  {isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
+                  {isHls ? (
+                    <source src={effectiveVideoUrl} type="application/x-mpegURL" />
+                  ) : isMkv ? (
+                    <source src={effectiveVideoUrl} type="video/x-matroska" />
+                  ) : (
+                    <source src={effectiveVideoUrl} type="video/mp4" />
+                  )}
 
-                  {(resolvedSubtitles.length > 0
-                    ? resolvedSubtitles
-                    : [
-                        {
-                          src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
-                          label: 'Bahasa Indonesia',
-                          srcLang: 'id',
-                          default: true,
-                        },
-                      ]
-                  ).map((sub, idx) => (
+                  {resolvedSubtitles.map((sub, idx) => (
                     <track
                       key={`${sub.src}-${idx}`}
                       kind="subtitles"
                       label={sub.label || `Subtitle ${idx + 1}`}
                       srcLang={sub.srcLang || 'id'}
                       src={sub.src}
-                      default={sub.default || idx === 0}
+                      default={sub.default}
                     />
                   ))}
                   Your browser does not support the video tag.
