@@ -390,6 +390,7 @@ export default function VideoPlayer({
 
     // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER & SEEK HANDLER ──
     const addCueSafe = (track: TextTrack, startSec: number, endSec: number, cleanText: string) => {
+      if (!cleanText || !cleanText.trim()) return;
       try {
         const cues = track.cues;
         if (cues) {
@@ -416,6 +417,18 @@ export default function VideoPlayer({
             track.dispatchEvent(new Event('cuechange'));
           } catch (e) {}
         }
+      }
+
+      // Hide empty caption elements to prevent persistent black boxes
+      if (typeof document !== 'undefined') {
+        const captionSpans = document.querySelectorAll('.plyr-custom-wrapper .plyr__caption');
+        captionSpans.forEach((span) => {
+          if (!span.textContent || !span.textContent.trim()) {
+            (span as HTMLElement).style.display = 'none';
+          } else {
+            (span as HTMLElement).style.display = 'inline';
+          }
+        });
       }
     };
 
@@ -617,6 +630,7 @@ export default function VideoPlayer({
         if (isCancelled || !videoRef.current) return;
 
         const player = new PlyrModule(videoRef.current, {
+          ratio: '16:9',
           controls: [
             'play-large',
             'play',
@@ -1074,12 +1088,12 @@ export default function VideoPlayer({
               /* Declarative <video> tag in JSX isolated with key */
               <div
                 key={`${effectiveVideoUrl}_${title || ''}`}
-                className="w-full h-full flex items-center justify-center plyr-custom-wrapper"
+                className="w-full h-full flex items-center justify-center plyr-custom-wrapper bg-black overflow-hidden"
               >
                 <video
                   ref={videoRef}
                   src={isMounted ? effectiveVideoUrl : undefined}
-                  className="plyr-react plyr w-full h-full"
+                  className="plyr-react plyr w-full h-full object-cover"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
