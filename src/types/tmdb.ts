@@ -81,6 +81,12 @@ export interface MovieDetail extends Movie {
   revenue: number;
   homepage: string | null;
   imdb_id: string | null;
+  belongs_to_collection?: {
+    id: number;
+    name: string;
+    poster_path?: string | null;
+    backdrop_path?: string | null;
+  } | null;
   spoken_languages: SpokenLanguage[];
   images?: {
     backdrops?: any[];

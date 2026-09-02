@@ -163,6 +163,23 @@ export async function getTVShowDetails(id: number): Promise<TVShowDetail | null>
   }
 }
 
+export async function getTMDBCollection(collectionId: number): Promise<{ parts?: Movie[] } | null> {
+  if (!collectionId || isNaN(collectionId)) return null;
+  const cacheKey = `tmdb_collection_${collectionId}`;
+  return memoryCache.getOrFetch<{ parts?: Movie[] } | null>(
+    cacheKey,
+    async () => {
+      try {
+        return await fetchTMDB<{ parts?: Movie[] }>(`/collection/${collectionId}`, { language: 'en-US' });
+      } catch {
+        return null;
+      }
+    },
+    86400_000,
+    3600_000
+  );
+}
+
 export async function searchMovies(query: string, page: number = 1): Promise<TMDBResponse<Movie>> {
   try {
     return await fetchTMDB<TMDBResponse<Movie>>('/search/movie', {
