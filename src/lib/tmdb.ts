@@ -104,6 +104,37 @@ export async function getTopRatedMovies(page: number = 1): Promise<TMDBResponse<
   return fetchTMDB<TMDBResponse<Movie>>('/movie/top_rated', { page: String(page) });
 }
 
+export interface BasicTMDBMeta {
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  genres?: { id: number; name: string }[];
+  release_date?: string;
+  first_air_date?: string;
+  vote_average?: number;
+  overview?: string;
+}
+
+/**
+ * Fast in-memory cached TMDB basic metadata fetcher (poster, backdrop, genres, release date)
+ * Cached for 24 hours in RAM with 1 hour SWR to avoid heavy network roundtrips.
+ */
+export async function getTMDBBasicMeta(type: 'movie' | 'tv', id: number): Promise<BasicTMDBMeta | null> {
+  if (!id || isNaN(id)) return null;
+  const cacheKey = `tmdb_basic_meta_${type}_${id}`;
+  return memoryCache.getOrFetch<BasicTMDBMeta | null>(
+    cacheKey,
+    async () => {
+      try {
+        return await fetchTMDB<BasicTMDBMeta>(`/${type}/${id}`, { language: 'en-US' });
+      } catch {
+        return null;
+      }
+    },
+    86400_000, // 24 hours hard TTL
+    3600_000   // 1 hour SWR
+  );
+}
+
 export async function getMovieDetails(id: number): Promise<MovieDetail | null> {
   try {
     const movie = await fetchTMDB<MovieDetail>(`/movie/${id}`, {

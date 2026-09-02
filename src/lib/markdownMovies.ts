@@ -3,7 +3,7 @@ import path from 'path';
 import matter from 'gray-matter';
 import { marked } from 'marked';
 import { MovieDetail } from '@/types/tmdb';
-import { getMovieDetails, getImageUrl, searchMovies } from '@/lib/tmdb';
+import { getMovieDetails, getImageUrl, searchMovies, getTMDBBasicMeta } from '@/lib/tmdb';
 import siteConfig, { FeaturedItem } from '@/config';
 import { cleanVideoUrl, getMovieUrl } from '@/lib/urls';
 import { getMongoMovieBySlug, getMongoMovies } from '@/lib/mongodb/service';
@@ -794,45 +794,65 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
           movieDocs = diskMovies;
         }
 
-        return movieDocs.map((m) => {
-          let poster: string | null = null;
-          let backdrop: string | null = null;
-          let rating = Number(m.rating) || 0;
-          let overview = m.deskripsi || '';
-          let genreIds: number[] = [];
-          let releaseDate = '2026-01-01';
+        return await Promise.all(
+          movieDocs.map(async (m) => {
+            let poster: string | null = null;
+            let backdrop: string | null = null;
+            let rating = Number(m.rating) || 0;
+            let overview = m.deskripsi || '';
+            let genreIds: number[] = [];
+            let releaseDate = '2026-01-01';
 
-          if (m.image_url) {
-            poster = getImageUrl(m.image_url, 'w500');
-            backdrop = getImageUrl(m.image_url, 'original');
-          }
+            if (m.tmdb_id) {
+              try {
+                const tmdb = await getTMDBBasicMeta('movie', Number(m.tmdb_id));
+                if (tmdb) {
+                  // Default poster from TMDB API
+                  if (tmdb.poster_path) poster = tmdb.poster_path;
+                  if (tmdb.backdrop_path) backdrop = tmdb.backdrop_path;
+                  if (!rating && tmdb.vote_average) rating = Math.round(tmdb.vote_average * 10) / 10;
+                  if (!overview && tmdb.overview) overview = tmdb.overview;
+                  if (tmdb.release_date) releaseDate = tmdb.release_date;
+                  if (Array.isArray(tmdb.genres)) genreIds = tmdb.genres.map((g) => g.id);
+                }
+              } catch {}
+            }
 
-          return {
-            id: m.tmdb_id || m.slug,
-            title: m.title || m.slug,
-            overview,
-            poster_path: poster,
-            backdrop_path: backdrop,
-            release_date: releaseDate,
-            vote_average: rating,
-            vote_count: 0,
-            genre_ids: genreIds,
-            popularity: 100,
-            adult: false,
-            video: false,
-            isCustomMarkdown: true,
-            media_type: 'movie',
-            customSlug: m.slug,
-            customVideoUrl: m.videourl,
-            customImageUrl: m.image_url || null,
-            featured: Boolean(m.featured),
-            trending: Boolean(m.trending),
-            language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
-            weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
-            updatedAt: Number(m.updatedAt) || Number(m.createdAt) || 0,
-            createdAt: Number(m.createdAt) || Number(m.updatedAt) || 0,
-          };
-        });
+            // Fallback for poster & backdrop if TMDB didn't return one
+            if (!poster && m.image_url) {
+              poster = m.image_url;
+            }
+            if (!backdrop && m.image_url) {
+              backdrop = m.image_url;
+            }
+
+            return {
+              id: m.tmdb_id || m.slug,
+              title: m.title || m.slug,
+              overview,
+              poster_path: poster,
+              backdrop_path: backdrop,
+              release_date: releaseDate,
+              vote_average: rating,
+              vote_count: 0,
+              genre_ids: genreIds,
+              popularity: 100,
+              adult: false,
+              video: false,
+              isCustomMarkdown: true,
+              media_type: 'movie',
+              customSlug: m.slug,
+              customVideoUrl: m.videourl,
+              customImageUrl: m.image_url || null,
+              featured: Boolean(m.featured),
+              trending: Boolean(m.trending),
+              language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
+              weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+              updatedAt: Number(m.updatedAt) || Number(m.createdAt) || 0,
+              createdAt: Number(m.createdAt) || Number(m.updatedAt) || 0,
+            };
+          })
+        );
       } catch (err) {
         console.warn('[markdownMovies] getAllCustomMoviesForList error:', err);
         return [];

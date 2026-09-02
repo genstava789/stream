@@ -18,12 +18,12 @@ const nextConfig = {
   compress: true,
   swcMinify: true,
 
-  // Optimasi tree-shaking untuk modul berat dan eliminasi stale router cache
+  // Optimasi tree-shaking untuk modul berat dan client-side router memory cache
   experimental: {
     optimizePackageImports: ['lucide-react', 'tinacms'],
     staleTimes: {
-      dynamic: 0,
-      static: 180,
+      dynamic: 120,
+      static: 300,
     },
   },
 

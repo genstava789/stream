@@ -3,7 +3,7 @@ import path from 'path';
 import matter from 'gray-matter';
 import { marked } from 'marked';
 import { TVShowDetail } from '@/types/tmdb';
-import { getTVShowDetails, getImageUrl, searchTVShows } from '@/lib/tmdb';
+import { getTVShowDetails, getImageUrl, searchTVShows, getTMDBBasicMeta } from '@/lib/tmdb';
 import { FeaturedItem } from '@/config';
 import { cleanVideoUrl, getTVUrl } from '@/lib/urls';
 import { getMongoTVShowBySlug, getMongoTVShows } from '@/lib/mongodb/service';
@@ -1143,44 +1143,64 @@ export async function getAllCustomTVShowsForList(): Promise<any[]> {
           showDocs = diskShows;
         }
 
-        return showDocs.map((s) => {
-          let poster: string | null = null;
-          let backdrop: string | null = null;
-          let rating = Number(s.rating) || 0;
-          let overview = s.deskripsi || '';
-          let genreIds: number[] = [];
-          let firstAirDate = '2026-01-01';
+        return await Promise.all(
+          showDocs.map(async (s) => {
+            let poster: string | null = null;
+            let backdrop: string | null = null;
+            let rating = Number(s.rating) || 0;
+            let overview = s.deskripsi || '';
+            let genreIds: number[] = [];
+            let firstAirDate = '2026-01-01';
 
-          if (s.image_url) {
-            poster = getImageUrl(s.image_url, 'w500');
-            backdrop = getImageUrl(s.image_url, 'original');
-          }
+            if (s.tmdb_id) {
+              try {
+                const tmdb = await getTMDBBasicMeta('tv', Number(s.tmdb_id));
+                if (tmdb) {
+                  // Default poster from TMDB API
+                  if (tmdb.poster_path) poster = tmdb.poster_path;
+                  if (tmdb.backdrop_path) backdrop = tmdb.backdrop_path;
+                  if (!rating && tmdb.vote_average) rating = Math.round(tmdb.vote_average * 10) / 10;
+                  if (!overview && tmdb.overview) overview = tmdb.overview;
+                  if (tmdb.first_air_date) firstAirDate = tmdb.first_air_date;
+                  if (Array.isArray(tmdb.genres)) genreIds = tmdb.genres.map((g) => g.id);
+                }
+              } catch {}
+            }
 
-          return {
-            id: s.tmdb_id || s.showSlug,
-            name: s.title || s.showSlug,
-            title: s.title || s.showSlug,
-            overview,
-            poster_path: poster,
-            backdrop_path: backdrop,
-            first_air_date: firstAirDate,
-            vote_average: rating,
-            vote_count: 0,
-            genre_ids: genreIds,
-            popularity: 100,
-            isCustomTV: true,
-            media_type: 'tv',
-            customSlug: s.showSlug,
-            customImageUrl: s.image_url || null,
-            featured: Boolean(s.featured),
-            trending: Boolean(s.trending),
-            language: s.language ? String(s.language).trim().toUpperCase() : 'ID',
-            weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
-            updatedAt: Number(s.updatedAt) || Number(s.createdAt) || 0,
-            createdAt: Number(s.createdAt) || Number(s.updatedAt) || 0,
-            link: `/tv/${s.showSlug}`,
-          };
-        });
+            // Fallback for poster & backdrop if TMDB didn't return one
+            if (!poster && s.image_url) {
+              poster = s.image_url;
+            }
+            if (!backdrop && s.image_url) {
+              backdrop = s.image_url;
+            }
+
+            return {
+              id: s.tmdb_id || s.showSlug,
+              name: s.title || s.showSlug,
+              title: s.title || s.showSlug,
+              overview,
+              poster_path: poster,
+              backdrop_path: backdrop,
+              first_air_date: firstAirDate,
+              vote_average: rating,
+              vote_count: 0,
+              genre_ids: genreIds,
+              popularity: 100,
+              isCustomTV: true,
+              media_type: 'tv',
+              customSlug: s.showSlug,
+              customImageUrl: s.image_url || null,
+              featured: Boolean(s.featured),
+              trending: Boolean(s.trending),
+              language: s.language ? String(s.language).trim().toUpperCase() : 'ID',
+              weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
+              updatedAt: Number(s.updatedAt) || Number(s.createdAt) || 0,
+              createdAt: Number(s.createdAt) || Number(s.updatedAt) || 0,
+              link: `/tv/${s.showSlug}`,
+            };
+          })
+        );
       } catch (err) {
         console.warn('[markdownTV] getAllCustomTVShowsForList error:', err);
         return [];
