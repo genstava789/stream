@@ -2,14 +2,13 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Metadata } from 'next';
-import { Calendar, Clock, Globe, Clapperboard, Users, ChevronLeft, Film, Sparkles, AlertTriangle } from 'lucide-react';
+import { Calendar, Clock, Globe, Clapperboard, Users, ChevronLeft, Sparkles, AlertTriangle } from 'lucide-react';
 import { getImageUrl } from '@/lib/tmdb';
 import {
   getMovieDetailsWithCustomOverride,
   getAllCustomMovieSlugs,
   getAllCustomMovieSlugsAsync,
 } from '@/lib/markdownMovies';
-import { getSequelPrioritizedRecommendations } from '@/lib/recommendations';
 import MovieCard from '@/components/MovieCard';
 import CastCard from '@/components/CastCard';
 import RatingBadge from '@/components/RatingBadge';
@@ -167,7 +166,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const siteUrl = getServerBaseUrl();
   const director = movie.credits?.crew?.find((c) => c.job === 'Director');
   const cast = (movie.credits?.cast || []).slice(0, 10);
-  const similarMovies = await getSequelPrioritizedRecommendations(movie, 14);
+  const similarMovies = movie.similar?.results?.slice(0, 14) || [];
   const runtime = movie.runtime
     ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m`
     : null;
@@ -483,12 +482,12 @@ export default async function MovieDetailPage({ params }: PageProps) {
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(124, 58, 237, 0.25))',
-                border: '1px solid rgba(6, 182, 212, 0.4)',
-                boxShadow: '0 0 15px rgba(6, 182, 212, 0.25)',
+                background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(124, 58, 237, 0.2))',
+                border: '1px solid rgba(6, 182, 212, 0.35)',
+                boxShadow: '0 0 15px rgba(6, 182, 212, 0.2)',
               }}
             >
-              <Film size={16} className="text-cyan-400" />
+              <Sparkles size={16} className="text-cyan-400" />
             </div>
             <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
               Recommended Movies
