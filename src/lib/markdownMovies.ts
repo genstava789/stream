@@ -8,8 +8,10 @@ import siteConfig, { FeaturedItem } from '@/config';
 import { cleanVideoUrl, getMovieUrl } from '@/lib/urls';
 import { getMongoMovieBySlug, getMongoMovies } from '@/lib/mongodb/service';
 import { isMongoConfigured } from '@/lib/mongodb/client';
-import { cache } from 'react';
+import * as React from 'react';
 import { memoryCache } from '@/lib/cache';
+
+const reactCache: <T extends (...args: any[]) => any>(fn: T) => T = (React as any).cache || ((fn: any) => fn);
 
 export interface CustomMovieFrontmatter {
   title?: string;
@@ -203,6 +205,35 @@ export function getAllCustomMovieSlugs(): string[] {
   return Array.from(new Set(slugs));
 }
 
+export async function getAllCustomMovieSlugsAsync(): Promise<string[]> {
+  const slugsSet = new Set<string>(getAllCustomMovieSlugs());
+  if (isMongoConfigured()) {
+    try {
+      const mongoDocs = await getMongoMovies();
+      for (const m of mongoDocs) {
+        if (m.slug) {
+          slugsSet.add(m.slug);
+          slugsSet.add(`${m.slug}.md`);
+        }
+        if (m.tmdb_id) {
+          slugsSet.add(String(m.tmdb_id));
+        }
+        if (m.title) {
+          const tSlug = cleanSlug(m.title);
+          if (tSlug) {
+            slugsSet.add(tSlug);
+            slugsSet.add(`${tSlug}-2026`);
+            if (m.tmdb_id) {
+              slugsSet.add(`${tSlug}-${m.tmdb_id}`);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+  return Array.from(slugsSet);
+}
+
 /**
  * Gets a mapping of TMDB IDs to their custom markdown movie slugs.
  */
@@ -251,23 +282,57 @@ export function getCustomMovieSlugsByTmdbId(): Record<number, string> {
 
 /**
  * Finds and parses a custom markdown movie by its slug, title slug, title-year, trailing ID, or tmdb_id.
+ * PRIORITY 1: MongoDB (Live Cloud Database)
+ * PRIORITY 2: Local Disk / Static Registry Fallback
  */
 export async function getCustomMovieBySlug(slugOrId: string | number): Promise<CustomMovieData | null> {
   const cacheKey = `custom_movie_by_slug_${String(slugOrId).trim().toLowerCase()}`;
   return memoryCache.getOrFetch<CustomMovieData | null>(
     cacheKey,
     async () => {
-      ensureContentDirExists();
       const searchKey = String(slugOrId).trim().toLowerCase();
       const cleanKey = searchKey.replace(/\.(md|markdown)$/i, '');
       const isNumeric = /^\d+$/.test(cleanKey);
 
-      // Check if searchKey has trailing ID or 4-digit year (e.g. "mutiny-2026" or "mutiny-1288445")
+      // ── 1. PRIMARY: Check MongoDB first (Cloud Database as Single Source of Truth) ──
+      if (isMongoConfigured()) {
+        try {
+          const mongoDoc = await getMongoMovieBySlug(slugOrId);
+          if (mongoDoc) {
+            const frontmatter: CustomMovieFrontmatter = {
+              title: mongoDoc.title,
+              tmdb_id: mongoDoc.tmdb_id,
+              rating: mongoDoc.rating,
+              deskripsi: mongoDoc.deskripsi,
+              videourl: mongoDoc.videourl,
+              image_url: mongoDoc.image_url,
+              featured: mongoDoc.featured,
+              trending: mongoDoc.trending,
+              language: mongoDoc.language,
+              weight: mongoDoc.weight,
+              subtitles: mongoDoc.subtitles,
+              duration: mongoDoc.duration,
+            };
+            const contentHtml = mongoDoc.content ? ((await marked.parse(mongoDoc.content)) as string) : '';
+            return {
+              slug: mongoDoc.slug,
+              filename: `${mongoDoc.slug}.md`,
+              frontmatter,
+              contentHtml,
+              rawContent: mongoDoc.content || '',
+            };
+          }
+        } catch (mErr) {
+          console.warn('[markdownMovies] MongoDB getCustomMovieBySlug notice:', mErr);
+        }
+      }
+
+      // ── 2. FALLBACK: Check Local Disk / Static Registry if not found in MongoDB ──
+      ensureContentDirExists();
       const idMatch = cleanKey.match(/-(\d{4,})$/);
       const trailingId = idMatch ? idMatch[1] : null;
       const cleanWithoutSuffix = cleanKey.replace(/-(19\d{2}|20\d{2}|\d{4,})$/, '');
 
-      // ── 1. FAST LOCAL RESOLUTION (Priority 1: Memory & Local Disk, <0.1ms) ──
       const files = getAllCustomMovieFiles();
       let matchedFile: string | null = null;
       let fileContent = '';
@@ -353,36 +418,6 @@ export async function getCustomMovieBySlug(slugOrId: string | number): Promise<C
         };
       }
 
-      // ── 2. CLOUD FALLBACK: Check MongoDB if not present in local files ──
-      if (isMongoConfigured()) {
-        try {
-          const mongoDoc = await getMongoMovieBySlug(slugOrId);
-          if (mongoDoc) {
-            const frontmatter: CustomMovieFrontmatter = {
-              title: mongoDoc.title,
-              tmdb_id: mongoDoc.tmdb_id,
-              rating: mongoDoc.rating,
-              deskripsi: mongoDoc.deskripsi,
-              videourl: mongoDoc.videourl,
-              image_url: mongoDoc.image_url,
-              featured: mongoDoc.featured,
-              subtitles: mongoDoc.subtitles,
-              duration: mongoDoc.duration,
-            };
-            const contentHtml = mongoDoc.content ? (marked.parse(mongoDoc.content) as string) : '';
-            return {
-              slug: mongoDoc.slug,
-              filename: `${mongoDoc.slug}.md`,
-              frontmatter,
-              contentHtml,
-              rawContent: mongoDoc.content || '',
-            };
-          }
-        } catch (mErr) {
-          console.warn('[markdownMovies] MongoDB getCustomMovieBySlug notice:', mErr);
-        }
-      }
-
       return null;
     },
     60_000,
@@ -395,7 +430,7 @@ export async function getCustomMovieBySlug(slugOrId: string | number): Promise<C
  * Supports dual-routing: ID (1288445), title-year (mutiny-2026), and title-id slug (mutiny-1288445).
  * Cached with React cache() to deduplicate requests between generateMetadata and Page.
  */
-export const getMovieDetailsWithCustomOverride = cache(async function getMovieDetailsWithCustomOverride(
+export const getMovieDetailsWithCustomOverride = reactCache(async function getMovieDetailsWithCustomOverride(
   slugOrId: string | number
 ): Promise<MergedMovieDetail | null> {
   const cacheKey = `movie_detail_override_${String(slugOrId).trim().toLowerCase()}`;
@@ -568,55 +603,56 @@ export const getMovieDetailsWithCustomOverride = cache(async function getMovieDe
 
 /**
  * Returns all custom markdown movies that have `featured: true` in their frontmatter.
+ * Sourced directly from MongoDB with fallback to local files.
  */
 export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
   return memoryCache.getOrFetch<FeaturedItem[]>(
     'featured_custom_movies_list',
     async () => {
       try {
-        let mongoMovies: any[] = [];
+        let movieDocs: any[] = [];
         if (isMongoConfigured()) {
-          mongoMovies = await getMongoMovies().catch(() => []);
+          const mongoMovies = await getMongoMovies().catch(() => []);
+          if (mongoMovies && mongoMovies.length > 0) {
+            movieDocs = mongoMovies.filter((m) => Boolean(m.featured));
+          }
         }
 
-        // Always scan local disk files and merge with MongoDB to ensure zero data loss during cache/DB sync
-        ensureContentDirExists();
-        const files = getAllCustomMovieFiles();
-        const diskMovies = files
-          .map((file) => {
-            try {
-              const raw = fs.readFileSync(path.join(CONTENT_DIR, file), 'utf8');
-              const { data } = matter(raw);
-              return {
-                slug: file.replace(/\.(md|markdown)$/i, ''),
-                tmdb_id: Number(data.tmdb_id) || 0,
-                title: data.title || file.replace(/\.(md|markdown)$/i, ''),
-                videourl: cleanVideoUrl(data.videourl || data.video_url || '') || '',
-                image_url: data.image_url || data.poster_path || '',
-                deskripsi: data.deskripsi || data.overview || '',
-                rating: Number(data.rating) || 0,
-                featured: Boolean(data.featured),
-                createdAt: 0,
-                updatedAt: 0,
-              };
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean) as any[];
+        // Fallback to local files only if MongoDB is empty or unconfigured
+        if (movieDocs.length === 0 && !isMongoConfigured()) {
+          ensureContentDirExists();
+          const files = getAllCustomMovieFiles();
+          const diskMovies = files
+            .map((file) => {
+              try {
+                const raw = fs.readFileSync(path.join(CONTENT_DIR, file), 'utf8');
+                const { data } = matter(raw);
+                return {
+                  slug: file.replace(/\.(md|markdown)$/i, ''),
+                  tmdb_id: Number(data.tmdb_id) || 0,
+                  title: data.title || file.replace(/\.(md|markdown)$/i, ''),
+                  videourl: cleanVideoUrl(data.videourl || data.video_url || '') || '',
+                  image_url: data.image_url || data.poster_path || '',
+                  deskripsi: data.deskripsi || data.overview || '',
+                  rating: Number(data.rating) || 0,
+                  featured: Boolean(data.featured),
+                  trending: Boolean(data.trending),
+                  language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
+                  weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : undefined,
+                  createdAt: 0,
+                  updatedAt: 0,
+                };
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean) as any[];
 
-        const moviesMap = new Map<string, any>();
-        for (const dm of diskMovies) {
-          moviesMap.set(dm.slug, dm);
-        }
-        for (const mm of mongoMovies) {
-          moviesMap.set(mm.slug, mm);
+          movieDocs = diskMovies.filter((m) => Boolean(m.featured));
         }
 
-        const allMovies = Array.from(moviesMap.values());
-        const featured = allMovies.filter((m) => Boolean(m.featured));
         return await Promise.all(
-          featured.map(async (m) => {
+          movieDocs.map(async (m) => {
             let overview = (m.deskripsi || (m as any).description || '').trim();
             let rating = m.rating || 0;
             let genres: string[] = [];
@@ -676,6 +712,8 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
               link: `/movie/${m.slug}`,
               badge: 'Featured',
               featured: true,
+              trending: Boolean(m.trending),
+              language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
               isCustom: true,
             } as FeaturedItem;
           })
@@ -692,28 +730,29 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
 
 /**
  * Returns all custom movies formatted as Movie objects for display in homepage rows and grids.
+ * Directly sourced from MongoDB when configured.
  */
 export async function getAllCustomMoviesForList(): Promise<any[]> {
   return memoryCache.getOrFetch<any[]>(
     'custom_movies_for_list',
     async () => {
       try {
-        const mergedMoviesMap = new Map<string, any>();
+        let movieDocs: any[] = [];
 
         if (isMongoConfigured()) {
           const mongoMovies = await getMongoMovies().catch(() => []);
-          for (const m of mongoMovies) {
-            if (m && m.slug) {
-              mergedMoviesMap.set(m.slug, m);
-            }
+          if (mongoMovies && mongoMovies.length > 0) {
+            movieDocs = mongoMovies;
           }
         }
 
-        ensureContentDirExists();
-        const files = getAllCustomMovieFiles();
-        for (const file of files) {
-          const slug = file.replace(/\.(md|markdown)$/i, '');
-          if (!mergedMoviesMap.has(slug)) {
+        // Fallback to local files only if MongoDB is unconfigured or empty
+        if (movieDocs.length === 0) {
+          ensureContentDirExists();
+          const files = getAllCustomMovieFiles();
+          const diskMovies: any[] = [];
+          for (const file of files) {
+            const slug = file.replace(/\.(md|markdown)$/i, '');
             try {
               const fullPath = path.join(CONTENT_DIR, file);
               const raw = fs.readFileSync(fullPath, 'utf8');
@@ -723,7 +762,7 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
                 fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
               } catch {}
               const { data } = matter(raw);
-              mergedMoviesMap.set(slug, {
+              diskMovies.push({
                 slug,
                 tmdb_id: Number(data.tmdb_id) || 0,
                 title: data.title || slug,
@@ -740,9 +779,8 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
               });
             } catch {}
           }
+          movieDocs = diskMovies;
         }
-
-        const movieDocs = Array.from(mergedMoviesMap.values());
 
         return await Promise.all(
           movieDocs.map(async (m) => {

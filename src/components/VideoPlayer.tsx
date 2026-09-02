@@ -581,8 +581,8 @@ export default function VideoPlayer({
     const initModules = async () => {
       try {
         if (isHls) {
-          const HlsModule = (await import('hls.js')).default;
-          if (HlsModule.isSupported() && !isCancelled && videoElement) {
+          const HlsModule = (await import('hls.js' as any)).default;
+          if (HlsModule && HlsModule.isSupported && HlsModule.isSupported() && !isCancelled && videoElement) {
             const hls = new HlsModule({
               enableWorker: true,
               lowLatencyMode: true,

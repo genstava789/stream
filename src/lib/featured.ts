@@ -67,6 +67,7 @@ export async function enforceFeaturedLimit(type: 'movie' | 'tv', limit: number =
         }
         memoryCache.invalidate('featured_');
         memoryCache.invalidate('custom_movies_');
+        memoryCache.invalidate('resolved_sections_');
       }
     } else if (type === 'tv') {
       const featuredTV = await getAllFeaturedCustomTV().catch(() => []);
@@ -97,6 +98,7 @@ export async function enforceFeaturedLimit(type: 'movie' | 'tv', limit: number =
         }
         memoryCache.invalidate('featured_');
         memoryCache.invalidate('custom_tv_');
+        memoryCache.invalidate('resolved_sections_');
       }
     }
   } catch (err) {

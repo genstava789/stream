@@ -3,9 +3,9 @@
  * Bypasses EROFS (Read-only filesystem) by committing directly to the GitHub repository.
  */
 
-const DEFAULT_OWNER = process.env.GITHUB_OWNER || 'genstava789';
-const DEFAULT_REPO = process.env.GITHUB_REPO || 'filmes';
-const DEFAULT_BRANCH = process.env.GITHUB_BRANCH || 'main';
+const DEFAULT_OWNER = process.env.GITHUB_BACKUP_OWNER || process.env.GITHUB_OWNER || 'genstava789';
+const DEFAULT_REPO = process.env.GITHUB_BACKUP_REPO || process.env.GITHUB_REPO || 'filmes-content';
+const DEFAULT_BRANCH = process.env.GITHUB_BACKUP_BRANCH || process.env.GITHUB_BRANCH || 'main';
 
 export interface GitHubOptions {
   owner?: string;

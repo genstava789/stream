@@ -7,6 +7,7 @@ import { getImageUrl } from '@/lib/tmdb';
 import {
   getMovieDetailsWithCustomOverride,
   getAllCustomMovieSlugs,
+  getAllCustomMovieSlugsAsync,
 } from '@/lib/markdownMovies';
 import MovieCard from '@/components/MovieCard';
 import CastCard from '@/components/CastCard';
@@ -505,10 +506,10 @@ export default async function MovieDetailPage({ params }: PageProps) {
 }
 
 /**
- * Pre-generates static params for all custom markdown movies in video/
+ * Pre-generates static params for all custom movies from MongoDB (and fallback local files)
  */
 export async function generateStaticParams() {
-  const customMovieSlugs = getAllCustomMovieSlugs();
+  const customMovieSlugs = await getAllCustomMovieSlugsAsync();
   return customMovieSlugs.map((slug) => ({
     id: slug,
   }));

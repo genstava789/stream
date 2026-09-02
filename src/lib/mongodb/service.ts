@@ -104,9 +104,16 @@ function ensureInitialized() {
       await Promise.allSettled([
         movies.createIndex({ slug: 1 }, { unique: true }),
         movies.createIndex({ tmdb_id: 1 }),
+        movies.createIndex({ featured: 1 }),
+        movies.createIndex({ trending: 1 }),
+        movies.createIndex({ updatedAt: -1 }),
         tvShows.createIndex({ showSlug: 1 }, { unique: true }),
         tvShows.createIndex({ tmdb_id: 1 }),
+        tvShows.createIndex({ featured: 1 }),
+        tvShows.createIndex({ trending: 1 }),
+        tvShows.createIndex({ updatedAt: -1 }),
         episodes.createIndex({ showSlug: 1, seasonFolder: 1, episode: 1 }, { unique: true }),
+        episodes.createIndex({ showSlug: 1 }),
       ]);
     } catch (e) {
       console.warn('[MongoDB] Init notice:', e);
@@ -273,6 +280,7 @@ function invalidateAllMongoCaches() {
   memoryCache.invalidate('markdown_');
   memoryCache.invalidate('featured_');
   memoryCache.invalidate('custom_');
+  memoryCache.invalidate('resolved_sections_');
   memoryCache.invalidate('content_provider_');
   memoryCache.invalidate('admin_');
   memoryCache.invalidate('cms_');
