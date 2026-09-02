@@ -168,6 +168,10 @@ export default function VideoPlayer({
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const effectiveVideoUrl = cleanVideoUrl(videoUrl) || videoUrl || '';
+  const onNextEpisodeRef = useRef(onNextEpisode);
+  onNextEpisodeRef.current = onNextEpisode;
+  const onPrevEpisodeRef = useRef(onPrevEpisode);
+  onPrevEpisodeRef.current = onPrevEpisode;
   const youtubeId = getYouTubeId(effectiveVideoUrl);
   const vimeoId = getVimeoId(effectiveVideoUrl);
 
@@ -520,7 +524,7 @@ export default function VideoPlayer({
           }
 
           // Trigger next episode prompt if handler is available
-          if (onNextEpisode) {
+          if (onNextEpisodeRef.current) {
             setShowNextPrompt(true);
             setNextCountdown(8);
           }
@@ -561,11 +565,11 @@ export default function VideoPlayer({
         videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
       }
     };
-  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv, onNextEpisode]);
+  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv]);
 
   // Next episode countdown timer
   useEffect(() => {
-    if (showNextPrompt && onNextEpisode) {
+    if (showNextPrompt) {
       countdownTimerRef.current = setInterval(() => {
         setNextCountdown((prev) => {
           if (prev <= 1) {
@@ -574,7 +578,9 @@ export default function VideoPlayer({
               countdownTimerRef.current = null;
             }
             setShowNextPrompt(false);
-            onNextEpisode();
+            if (onNextEpisodeRef.current) {
+              onNextEpisodeRef.current();
+            }
             return 0;
           }
           return prev - 1;
@@ -591,7 +597,7 @@ export default function VideoPlayer({
         countdownTimerRef.current = null;
       }
     };
-  }, [showNextPrompt, onNextEpisode]);
+  }, [showNextPrompt]);
 
   // Handle Resume Playback button action
   const handleResumePlayback = () => {

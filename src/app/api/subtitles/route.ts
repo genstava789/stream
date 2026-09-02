@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BLEACH_INDONESIAN_VTT } from './embeddedVtt';
+import {
+  BLEACH_INDONESIAN_VTT,
+  BLEACH_ENGLISH_VTT,
+  TOYSTORY5_INDONESIAN_VTT,
+  TOYSTORY5_ENGLISH_VTT,
+  TRANSFORMERS_INDONESIAN_VTT,
+  TRANSFORMERS_ENGLISH_VTT,
+} from './embeddedVtt';
 
 export const dynamic = 'force-dynamic';
 
@@ -181,7 +188,7 @@ async function extractSubtitlesToMemory(videoUrl: string, knownTracks?: TrackMet
       });
 
       const abortController = new AbortController();
-      const timeoutId = setTimeout(() => abortController.abort(), 25000);
+      const timeoutId = setTimeout(() => abortController.abort(), 20000);
 
       const res = await fetch(videoUrl, { signal: abortController.signal }).catch(() => null);
       if (res && res.ok && res.body) {
@@ -233,47 +240,67 @@ export async function GET(request: NextRequest) {
   if (infoRequested) {
     let tracks = await getTracksHeader(videoUrl);
 
-    // Fallback if Bleach video URL
-    if (tracks.length === 0 && videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
-      tracks = [
-        { trackNumber: 4, language: 'id', label: 'Bahasa Indonesia', isDefault: true, order: 1 },
-        { trackNumber: 3, language: 'en', label: 'English', isDefault: false, order: 2 },
-      ];
-    }
-
-    // Trigger asynchronous memory extraction in background so cues are ready
-    if (tracks.length > 0) {
-      extractSubtitlesToMemory(videoUrl, tracks).catch(() => {});
+    // Instant embedded tracks metadata fallbacks
+    if (tracks.length === 0) {
+      if (videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
+        tracks = [
+          { trackNumber: 4, language: 'id', label: 'Bahasa Indonesia', isDefault: true, order: 1 },
+          { trackNumber: 3, language: 'en', label: 'English', isDefault: false, order: 2 },
+        ];
+      } else if (videoUrl.toLowerCase().includes('toy.story.5') || videoUrl.toLowerCase().includes('toy-story-5')) {
+        tracks = [
+          { trackNumber: 3, language: 'id', label: 'Bahasa Indonesia', isDefault: true, order: 1 },
+          { trackNumber: 4, language: 'en', label: 'English', isDefault: false, order: 2 },
+        ];
+      } else if (videoUrl.toLowerCase().includes('transformers')) {
+        tracks = [
+          { trackNumber: 16, language: 'id', label: 'Bahasa Indonesia', isDefault: true, order: 1 },
+          { trackNumber: 15, language: 'en', label: 'English', isDefault: false, order: 2 },
+          { trackNumber: 17, language: 'id', label: 'Bahasa Indonesia', isDefault: false, order: 3 },
+        ];
+      }
     }
 
     return NextResponse.json({ tracks });
   }
 
   // 2. If subtitle VTT cues are requested:
-  // Check memory cache first
-  const cached = inMemoryCache.get(videoUrl);
   let vtt: string | null = null;
 
-  if (cached && cached.vttByTrack.size > 0) {
-    if (requestedTrack !== null && cached.vttByTrack.has(requestedTrack)) {
-      vtt = cached.vttByTrack.get(requestedTrack)!;
-    } else {
-      const match = cached.tracks.find((t) => t.language === lang || (lang === 'id' && t.isDefault));
-      if (match && cached.vttByTrack.has(match.trackNumber)) {
-        vtt = cached.vttByTrack.get(match.trackNumber)!;
+  // Instant in-memory check for embedded containers
+  const isEn =
+    (requestedTrack === 4 && videoUrl.toLowerCase().includes('toy.story.5')) ||
+    (requestedTrack === 3 && videoUrl.includes('BLEACH')) ||
+    (requestedTrack === 15 && videoUrl.toLowerCase().includes('transformers')) ||
+    lang === 'en' ||
+    lang === 'eng';
+
+  if (videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
+    vtt = isEn ? BLEACH_ENGLISH_VTT : BLEACH_INDONESIAN_VTT;
+  } else if (videoUrl.toLowerCase().includes('toy.story.5') || videoUrl.toLowerCase().includes('toy-story-5')) {
+    vtt = isEn ? TOYSTORY5_ENGLISH_VTT : TOYSTORY5_INDONESIAN_VTT;
+  } else if (videoUrl.toLowerCase().includes('transformers')) {
+    vtt = isEn ? TRANSFORMERS_ENGLISH_VTT : TRANSFORMERS_INDONESIAN_VTT;
+  }
+
+  // Check in-memory dynamic cache for any other generic MKV
+  if (!vtt) {
+    const cached = inMemoryCache.get(videoUrl);
+    if (cached && cached.vttByTrack.size > 0) {
+      if (requestedTrack !== null && cached.vttByTrack.has(requestedTrack)) {
+        vtt = cached.vttByTrack.get(requestedTrack)!;
       } else {
-        const first = cached.vttByTrack.values().next().value;
-        if (first) vtt = first;
+        const match = cached.tracks.find((t) => t.language === lang || (lang === 'id' && t.isDefault));
+        if (match && cached.vttByTrack.has(match.trackNumber)) {
+          vtt = cached.vttByTrack.get(match.trackNumber)!;
+        } else {
+          vtt = cached.vttByTrack.values().next().value || null;
+        }
       }
     }
   }
 
-  // Fallback for Bleach in-memory VTT
-  if (!vtt && videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
-    vtt = BLEACH_INDONESIAN_VTT;
-  }
-
-  // If not yet in memory, extract now
+  // Dynamic on-demand extraction for any other generic MKV
   if (!vtt) {
     const extracted = await extractSubtitlesToMemory(videoUrl);
     if (requestedTrack !== null && extracted.vttByTrack.has(requestedTrack)) {
