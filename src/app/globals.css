@@ -839,23 +839,26 @@ input:focus-visible {
   }
 }
 
-/* =========================================================================
-   TRANSPARENT & HIGH-DEFINITION SUBTITLE RENDERING (NO BLACK BOX BACKGROUND)
-   ========================================================================= */
+/* Center Play Button: ALWAYS guaranteed visible when video is stopped or paused (fixes disappearing button on episode switch) */
+.plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__control--overlaid {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 35 !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
 
-/* Completely hide empty caption spans to eliminate any persistent black box/artefact */
-.plyr-custom-wrapper .plyr__captions span:empty,
-.plyr-custom-wrapper .plyr__caption:empty,
-.plyr-custom-wrapper .plyr__captions:empty {
+.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  background-color: transparent !important;
 }
+
+/* =========================================================================
+   TRANSPARENT & HIGH-DEFINITION SUBTITLE RENDERING (NO BLACK BOX BACKGROUND)
+   ========================================================================= */
 
 .plyr-custom-wrapper .plyr__captions {
   bottom: 14px !important;
@@ -880,7 +883,7 @@ input:focus-visible {
   transform: translateY(0) !important;
 }
 
-/* Base typography for captions and cues: 100% TRANSPARENT background with crisp high-contrast HD drop-shadow */
+/* Base typography for captions and cues: 100% TRANSPARENT background, NO black box */
 .plyr-custom-wrapper video::cue,
 .plyr-custom-wrapper .plyr__captions,
 .plyr-custom-wrapper .plyr__caption {
@@ -897,6 +900,7 @@ input:focus-visible {
   box-shadow: none !important;
   border: none !important;
   padding: 0 !important;
+  margin: 0 !important;
   border-radius: 0 !important;
   -webkit-font-smoothing: antialiased !important;
   -moz-osx-font-smoothing: grayscale !important;

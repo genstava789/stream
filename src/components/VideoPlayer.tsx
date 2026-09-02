@@ -418,22 +418,10 @@ export default function VideoPlayer({
           } catch (e) {}
         }
       }
-
-      // Hide empty caption elements to prevent persistent black boxes
-      if (typeof document !== 'undefined') {
-        const captionSpans = document.querySelectorAll('.plyr-custom-wrapper .plyr__caption');
-        captionSpans.forEach((span) => {
-          if (!span.textContent || !span.textContent.trim()) {
-            (span as HTMLElement).style.display = 'none';
-          } else {
-            (span as HTMLElement).style.display = 'inline';
-          }
-        });
-      }
     };
 
     const fetchSubtitlesForSeek = async (targetTime: number) => {
-      if (!isMkv || !parserRef.current || !totalFileSizeRef.current) return;
+      if (!isMkv || !parserRef.current) return;
       const dur = videoElement?.duration || playerInstanceRef.current?.duration;
       if (!dur || dur <= 0) return;
 
@@ -447,10 +435,11 @@ export default function VideoPlayer({
         const { SubtitleStream } = await import('matroska-subtitles');
         if (isCancelled || seekAbortController.signal.aborted) return;
 
+        const totalBytes = totalFileSizeRef.current || 1000000000;
         const ratio = Math.max(0, Math.min(1, targetTime / dur));
-        const approxByte = Math.floor(ratio * totalFileSizeRef.current);
+        const approxByte = Math.floor(ratio * totalBytes);
         const startByte = Math.max(0, approxByte - 2000000);
-        const endByte = Math.min(totalFileSizeRef.current - 1, startByte + 12000000);
+        const endByte = Math.min(totalBytes - 1, startByte + 12000000);
 
         const seekStream = new SubtitleStream(parserRef.current);
         seekStream.on('subtitle', (sub: any, trackNumber: number) => {
@@ -565,6 +554,8 @@ export default function VideoPlayer({
         const cl = res.headers.get('content-length');
         if (cl) {
           totalFileSizeRef.current = parseInt(cl, 10);
+        } else {
+          totalFileSizeRef.current = 1000000000;
         }
 
         if (res.body) {
@@ -630,7 +621,6 @@ export default function VideoPlayer({
         if (isCancelled || !videoRef.current) return;
 
         const player = new PlyrModule(videoRef.current, {
-          ratio: '16:9',
           controls: [
             'play-large',
             'play',
@@ -1092,17 +1082,17 @@ export default function VideoPlayer({
               >
                 <video
                   ref={videoRef}
-                  src={isMounted ? effectiveVideoUrl : undefined}
+                  src={effectiveVideoUrl}
                   className="plyr-react plyr w-full h-full object-cover"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
                 >
                   <source
-                    src={isMounted ? effectiveVideoUrl : ''}
+                    src={effectiveVideoUrl}
                     type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
                   />
-                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
+                  {isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
                   {isMounted &&
                     (resolvedSubtitles.length > 0 ? resolvedSubtitles : extSubs).map((sub, idx) => (
