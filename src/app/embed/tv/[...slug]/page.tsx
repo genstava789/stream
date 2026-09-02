@@ -11,9 +11,8 @@ import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { getServerBaseUrl, getServerAbsoluteUrl } from '@/lib/serverUrls';
 import siteConfig from '@/config';
 
-export const dynamic = 'force-dynamic';
 export const dynamicParams = true;
-export const revalidate = 0;
+export const revalidate = 3600;
 
 interface PageProps {
   params: {

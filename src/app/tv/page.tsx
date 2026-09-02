@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   description: `Discover trending and popular TV shows on ${siteConfig.name}.`,
 };
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier)
+export const revalidate = 3600;
 
 export default async function TVPage() {
   const [genresData, customFeaturedShows, sections] = await Promise.all([

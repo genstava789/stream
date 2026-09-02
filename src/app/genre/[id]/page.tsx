@@ -37,7 +37,8 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   };
 }
 
-export const revalidate = 15;
+// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier)
+export const revalidate = 3600;
 
 export default async function GenrePage({ params, searchParams }: PageProps) {
   const isTV = searchParams.type === 'tv';

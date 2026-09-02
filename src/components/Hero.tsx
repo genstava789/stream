@@ -232,6 +232,7 @@ export default function Hero({
                 className="absolute inset-0 w-full h-full object-cover object-top sm:object-center"
                 loading={idx === 0 ? 'eager' : 'lazy'}
                 decoding="async"
+                fetchPriority={idx === 0 ? 'high' : 'auto'}
               />
             )}
           </div>

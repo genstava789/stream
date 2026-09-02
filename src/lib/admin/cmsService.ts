@@ -120,6 +120,7 @@ export function selectiveRevalidateAll(targetSlug?: string) {
       revalidatePath('/embed/movie/[id]', 'page');
       revalidatePath('/embed/tv/[...slug]', 'page');
       revalidatePath('/admin', 'page');
+      revalidatePath('/genre/[id]', 'page');
       if (targetSlug) {
         revalidatePath(`/movie/${targetSlug}`, 'page');
         revalidatePath(`/tv/${targetSlug}`, 'page');

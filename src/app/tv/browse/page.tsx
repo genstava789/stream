@@ -5,8 +5,8 @@ import { getAllCustomTVShowsForList } from '@/lib/markdownTV';
 import { getTVGenres, getGenres } from '@/lib/tmdb';
 import siteConfig from '@/config';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier)
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: `Browse TV Series - ${siteConfig.name}`,

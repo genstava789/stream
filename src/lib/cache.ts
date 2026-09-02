@@ -158,6 +158,12 @@ class MemoryCache {
         this.store.delete(key);
       }
     }
+    const pendingKeys = Array.from(this.pending.keys());
+    for (const key of pendingKeys) {
+      if (key === keyOrPrefix || key.startsWith(keyOrPrefix)) {
+        this.pending.delete(key);
+      }
+    }
   }
 
   /**
@@ -165,6 +171,7 @@ class MemoryCache {
    */
   clear(): void {
     this.store.clear();
+    this.pending.clear();
   }
 
   /**
