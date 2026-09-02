@@ -161,7 +161,6 @@ export default function VideoPlayer({
   const [nextCountdown, setNextCountdown] = useState(8);
   const [isMounted, setIsMounted] = useState(false);
   const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>([]);
-  const [subtitlesLoaded, setSubtitlesLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
@@ -203,18 +202,15 @@ export default function VideoPlayer({
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
 
-  // Load & store subtitles temporarily in browser RAM as Blob URLs; auto-clear on unmount/refresh
+  // Load embedded/external subtitles in background without blocking player initialization
   useEffect(() => {
     let isCancelled = false;
-    const blobUrls: string[] = [];
-    setSubtitlesLoaded(false);
 
     const loadSubtitles = async () => {
       try {
         let items = normalizeSubtitles();
 
-        // If no external subtitle provided (e.g. MKV container or TV episodes),
-        // read embedded container subtitle metadata in order with default track first
+        // If no external subtitle provided, query embedded container subtitle metadata
         if (items.length === 0 && effectiveVideoUrl) {
           try {
             const infoRes = await fetch(`/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&info=true`);
@@ -230,81 +226,40 @@ export default function VideoPlayer({
               }
             }
           } catch (e) {
-            console.warn('Could not read container subtitle metadata:', e);
+            console.warn('[subtitles] Could not read container subtitle metadata:', e);
           }
-
-          // Fallback default track if info fetch failed
-          if (items.length === 0) {
-            items = [
-              {
-                src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
-                label: 'Bahasa Indonesia',
-                srcLang: 'id',
-                default: true,
-              },
-            ];
-          }
-        }
-
-        // Convert all subtitles to in-memory Blob URLs stored purely in browser memory
-        const updated: SubtitleTrackItem[] = [];
-        for (const item of items) {
-          if (!item.src) continue;
-          try {
-            const res = await fetch(item.src);
-            if (res.ok) {
-              let text = await res.text();
-              if (item.src.toLowerCase().includes('.srt')) {
-                text = srtToVtt(text);
-              }
-              // Create in-memory Blob URL purely in browser memory (ephemeral RAM)
-              const blob = new Blob([text], { type: 'text/vtt;charset=utf-8' });
-              const blobUrl = URL.createObjectURL(blob);
-              blobUrls.push(blobUrl);
-              updated.push({
-                ...item,
-                src: blobUrl,
-              });
-              continue;
-            }
-          } catch (e) {
-            console.warn('Could not store subtitle in browser memory:', e);
-          }
-          updated.push(item);
         }
 
         if (!isCancelled) {
-          setResolvedSubtitles(updated);
+          setResolvedSubtitles(items);
         }
       } catch (err) {
-        console.warn('Could not load subtitles:', err);
-      } finally {
-        if (!isCancelled) {
-          setSubtitlesLoaded(true);
-        }
+        console.warn('[subtitles] Subtitle loading error:', err);
       }
     };
 
     loadSubtitles();
 
-    // Automatically clear in-memory Blob URLs when user navigates away or switches episode
     return () => {
       isCancelled = true;
-      blobUrls.forEach((url) => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (e) {}
-      });
     };
-  }, [normalizeSubtitles, isMkv, effectiveVideoUrl]);
+  }, [normalizeSubtitles, effectiveVideoUrl]);
+
+  // Synchronize dynamic subtitle tracks with Plyr captions setup
+  useEffect(() => {
+    if (playerInstanceRef.current && playerInstanceRef.current.captions) {
+      try {
+        playerInstanceRef.current.captions.setup();
+      } catch (e) {}
+    }
+  }, [resolvedSubtitles]);
 
   const extSubs = normalizeSubtitles();
 
-  // Main video player initialization effect
+  // Main video player initialization effect - RUNS IMMEDIATELY on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (youtubeId || vimeoId) return;
-    if (!subtitlesLoaded) return;
 
     let isCancelled = false;
     const abortController = new AbortController();
@@ -606,7 +561,7 @@ export default function VideoPlayer({
         videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
       }
     };
-  }, [effectiveVideoUrl, subtitlesLoaded, youtubeId, vimeoId, storageKey, isHls, isMkv, onNextEpisode]);
+  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv, onNextEpisode]);
 
   // Next episode countdown timer
   useEffect(() => {

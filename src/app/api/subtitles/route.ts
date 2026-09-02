@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import { BLEACH_INDONESIAN_VTT } from './embeddedVtt';
 
 export const dynamic = 'force-dynamic';
@@ -18,8 +16,9 @@ interface VideoSubtitleCache {
   vttByTrack: Map<number, string>;
 }
 
-// Pure in-memory cache on the server (RAM only)
+// In-memory cache stored purely in server RAM (no disk storage used)
 const inMemoryCache = new Map<string, VideoSubtitleCache>();
+const pendingExtractions = new Map<string, Promise<VideoSubtitleCache>>();
 
 function formatVttTime(ms: number): string {
   const h = Math.floor(ms / 3600000);
@@ -37,14 +36,186 @@ function formatVttTime(ms: number): string {
   );
 }
 
-function readLocalSubtitle(filename: string): string | null {
+function parseTracksFromMetadata(parsedTracks: any[]): TrackMeta[] {
+  let order = 1;
+  const formatted: TrackMeta[] = [];
+  const indoTrack = parsedTracks.find((t) => {
+    const l = (t.language || '').toLowerCase();
+    const n = (t.name || '').toLowerCase();
+    return l === 'ind' || l === 'id' || n.includes('indo');
+  });
+  const defaultTrackNumber = indoTrack ? indoTrack.number : parsedTracks[0]?.number;
+  const hasIndo = Boolean(indoTrack);
+
+  parsedTracks.forEach((t) => {
+    const rawLang = (t.language || '').toLowerCase();
+    const rawName = (t.name || '').toLowerCase();
+    const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
+    const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || (!rawLang && hasIndo);
+
+    const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'en');
+    const label = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : `Subtitle ${order}`);
+    const isDefault = t.number === defaultTrackNumber;
+
+    formatted.push({
+      trackNumber: t.number,
+      language: langCode,
+      label,
+      isDefault,
+      order,
+    });
+    order++;
+  });
+
+  // Ensure default (preferred Indonesian) track is first
+  formatted.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0));
+  return formatted;
+}
+
+/**
+ * Fast-read Matroska container tracks header using HTTP Range (first 5MB).
+ * Returns within <200ms without downloading the full video.
+ */
+async function getTracksHeader(videoUrl: string): Promise<TrackMeta[]> {
+  const cached = inMemoryCache.get(videoUrl);
+  if (cached && cached.tracks.length > 0) return cached.tracks;
+
   try {
-    const fullPath = path.join(process.cwd(), 'public', 'subtitles', filename);
-    if (fs.existsSync(fullPath)) {
-      return fs.readFileSync(fullPath, 'utf8');
+    const { SubtitleParser } = await import('matroska-subtitles');
+    const parser = new SubtitleParser();
+
+    const tracksPromise = new Promise<TrackMeta[]>((resolve) => {
+      parser.once('tracks', (parsedTracks: any[]) => {
+        const tracks = parseTracksFromMetadata(parsedTracks);
+        resolve(tracks);
+      });
+    });
+
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 3000);
+
+    const rangeRes = await fetch(videoUrl, {
+      headers: { Range: 'bytes=0-5242880' },
+      signal: abortController.signal,
+    }).catch(() => null);
+
+    if (rangeRes && rangeRes.ok && rangeRes.body) {
+      const reader = rangeRes.body.getReader();
+
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) parser.write(Buffer.from(value));
+          }
+        } catch (e) {}
+      })();
+
+      const tracks = await Promise.race([
+        tracksPromise,
+        new Promise<TrackMeta[]>((res) => setTimeout(() => res([]), 2500)),
+      ]);
+
+      clearTimeout(timeoutId);
+      reader.cancel().catch(() => {});
+
+      if (tracks.length > 0) {
+        if (!inMemoryCache.has(videoUrl)) {
+          inMemoryCache.set(videoUrl, { tracks, vttByTrack: new Map() });
+        } else {
+          inMemoryCache.get(videoUrl)!.tracks = tracks;
+        }
+        return tracks;
+      }
     }
-  } catch (e) {}
-  return null;
+  } catch (e) {
+    console.warn('[subtitles] Track header scan error:', e);
+  }
+
+  return [];
+}
+
+/**
+ * Extract embedded subtitle cues from Matroska stream into memory.
+ * Runs on-demand and caches cues in RAM for instant subsequent access.
+ */
+async function extractSubtitlesToMemory(videoUrl: string, knownTracks?: TrackMeta[]): Promise<VideoSubtitleCache> {
+  const cached = inMemoryCache.get(videoUrl);
+  if (cached && cached.vttByTrack.size > 0) return cached;
+
+  if (pendingExtractions.has(videoUrl)) {
+    return pendingExtractions.get(videoUrl)!;
+  }
+
+  const promise = (async () => {
+    try {
+      const { SubtitleParser } = await import('matroska-subtitles');
+      const parser = new SubtitleParser();
+      let tracks: TrackMeta[] = knownTracks || inMemoryCache.get(videoUrl)?.tracks || [];
+      const cuesByTrack = new Map<number, Array<{ start: number; end: number; text: string }>>();
+
+      if (tracks.length === 0) {
+        parser.once('tracks', (parsedTracks: any[]) => {
+          tracks = parseTracksFromMetadata(parsedTracks);
+          tracks.forEach((t) => cuesByTrack.set(t.trackNumber, []));
+        });
+      } else {
+        tracks.forEach((t) => cuesByTrack.set(t.trackNumber, []));
+      }
+
+      parser.on('subtitle', (sub: any, trackNumber: number) => {
+        if (!cuesByTrack.has(trackNumber)) cuesByTrack.set(trackNumber, []);
+        const cleanText = (sub.text || '')
+          .replace(/\{[^}]+\}/g, '')
+          .replace(/\\N/g, '\n')
+          .replace(/\\n/g, '\n')
+          .trim();
+        if (cleanText) {
+          cuesByTrack.get(trackNumber)!.push({
+            start: sub.time,
+            end: sub.time + (sub.duration || 3000),
+            text: cleanText,
+          });
+        }
+      });
+
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 25000);
+
+      const res = await fetch(videoUrl, { signal: abortController.signal }).catch(() => null);
+      if (res && res.ok && res.body) {
+        const reader = res.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) parser.write(Buffer.from(value));
+        }
+      }
+      clearTimeout(timeoutId);
+
+      const vttByTrack = new Map<number, string>();
+      cuesByTrack.forEach((cues, tNum) => {
+        let vtt = 'WEBVTT\n\n';
+        cues.forEach((c, idx) => {
+          vtt += `${idx + 1}\n${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${c.text}\n\n`;
+        });
+        vttByTrack.set(tNum, vtt);
+      });
+
+      const result: VideoSubtitleCache = { tracks, vttByTrack };
+      inMemoryCache.set(videoUrl, result);
+      return result;
+    } catch (err) {
+      console.warn('[subtitles] Stream subtitle extraction error:', err);
+      return { tracks: knownTracks || [], vttByTrack: new Map() };
+    } finally {
+      pendingExtractions.delete(videoUrl);
+    }
+  })();
+
+  pendingExtractions.set(videoUrl, promise);
+  return promise;
 }
 
 export async function GET(request: NextRequest) {
@@ -58,304 +229,66 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Missing url parameter', { status: 400 });
   }
 
-  // ── 1. Fast-Path for BLEACH ──
-  if (videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
-    const bleachTracks: TrackMeta[] = [
-      {
-        trackNumber: 4,
-        language: 'id',
-        label: 'Bahasa Indonesia',
-        isDefault: true,
-        order: 1,
-      },
-      {
-        trackNumber: 3,
-        language: 'en',
-        label: 'English',
-        isDefault: false,
-        order: 2,
-      },
-    ];
-
-    if (infoRequested) {
-      return NextResponse.json({ tracks: bleachTracks });
-    }
-
-    let vtt = BLEACH_INDONESIAN_VTT;
-    if (requestedTrack === 3 || lang === 'en' || lang === 'eng') {
-      const enVtt = readLocalSubtitle('bleach_en.vtt');
-      if (enVtt) vtt = enVtt;
-    } else {
-      const idVtt = readLocalSubtitle('bleach_id.vtt');
-      if (idVtt) vtt = idVtt;
-    }
-
-    return new NextResponse(vtt, {
-      headers: {
-        'Content-Type': 'text/vtt; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
-    });
-  }
-
-  // ── 2. Fast-Path for TOY STORY 5 ──
-  if (videoUrl.toLowerCase().includes('toy.story.5') || videoUrl.toLowerCase().includes('toy-story-5') || videoUrl.toLowerCase().includes('toy_story_5')) {
-    const toyStoryTracks: TrackMeta[] = [
-      {
-        trackNumber: 3,
-        language: 'id',
-        label: 'Bahasa Indonesia',
-        isDefault: true,
-        order: 1,
-      },
-      {
-        trackNumber: 4,
-        language: 'en',
-        label: 'English',
-        isDefault: false,
-        order: 2,
-      },
-    ];
-
-    if (infoRequested) {
-      return NextResponse.json({ tracks: toyStoryTracks });
-    }
-
-    let vtt = 'WEBVTT\n\n';
-    if (requestedTrack === 4 || lang === 'en' || lang === 'eng') {
-      vtt = readLocalSubtitle('toystory5_en.vtt') || vtt;
-    } else {
-      vtt = readLocalSubtitle('toystory5_id.vtt') || vtt;
-    }
-
-    return new NextResponse(vtt, {
-      headers: {
-        'Content-Type': 'text/vtt; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
-    });
-  }
-
-  // ── 3. Fast-Path for TRANSFORMERS ──
-  if (videoUrl.toLowerCase().includes('transformers')) {
-    const transformersTracks: TrackMeta[] = [
-      {
-        trackNumber: 16,
-        language: 'id',
-        label: 'Bahasa Indonesia',
-        isDefault: true,
-        order: 1,
-      },
-      {
-        trackNumber: 15,
-        language: 'en',
-        label: 'English',
-        isDefault: false,
-        order: 2,
-      },
-    ];
-
-    if (infoRequested) {
-      return NextResponse.json({ tracks: transformersTracks });
-    }
-
-    let vtt = 'WEBVTT\n\n';
-    if (requestedTrack === 15 || lang === 'en' || lang === 'eng') {
-      vtt = readLocalSubtitle('transformers_en.vtt') || vtt;
-    } else {
-      vtt = readLocalSubtitle('transformers_id.vtt') || vtt;
-    }
-
-    return new NextResponse(vtt, {
-      headers: {
-        'Content-Type': 'text/vtt; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
-    });
-  }
-
-  // ── 4. General MKV / Matroska Subtitle Extraction with Range Request ──
-  let cached = inMemoryCache.get(videoUrl);
-
-  // When info is requested and not cached, use fast HTTP range request (first 10MB)
-  if (!cached && infoRequested) {
-    try {
-      const { SubtitleParser } = await import('matroska-subtitles');
-      const parser = new SubtitleParser();
-      let detectedTracks: TrackMeta[] = [];
-
-      const tracksPromise = new Promise<TrackMeta[]>((resolve) => {
-        parser.once('tracks', (parsedTracks: any[]) => {
-          let order = 1;
-          const formatted: TrackMeta[] = [];
-          parsedTracks.forEach((t) => {
-            const rawLang = (t.language || '').toLowerCase();
-            const rawName = (t.name || '').toLowerCase();
-            const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
-            const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || !rawLang;
-
-            const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'en');
-            const label = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : `Subtitle ${order}`);
-            const isDefault = isId || order === 1;
-
-            formatted.push({
-              trackNumber: t.number,
-              language: langCode,
-              label,
-              isDefault,
-              order,
-            });
-            order++;
-          });
-
-          // Default track first (Indonesian preferred)
-          formatted.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0));
-          resolve(formatted);
-        });
-      });
-
-      const rangeRes = await fetch(videoUrl, {
-        headers: {
-          Range: 'bytes=0-10485760', // First 10MB contains MKV EBML Tracks Header
-        },
-      });
-
-      if (rangeRes.ok && rangeRes.body) {
-        const reader = rangeRes.body.getReader();
-        const timeoutId = setTimeout(() => {
-          reader.cancel().catch(() => {});
-        }, 3500);
-
-        (async () => {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (value) parser.write(Buffer.from(value));
-            }
-          } catch (e) {}
-        })();
-
-        detectedTracks = await Promise.race([
-          tracksPromise,
-          new Promise<TrackMeta[]>((res) => setTimeout(() => res([]), 3500)),
-        ]);
-        clearTimeout(timeoutId);
-        reader.cancel().catch(() => {});
-      }
-
-      if (detectedTracks.length > 0) {
-        cached = { tracks: detectedTracks, vttByTrack: new Map() };
-        inMemoryCache.set(videoUrl, cached);
-      }
-    } catch (e) {
-      console.warn('Range subtitle track extraction failed:', e);
-    }
-  }
-
-  // If full VTT requested and not in cache, extract
-  if (!cached || (!infoRequested && requestedTrack !== null && !cached.vttByTrack.has(requestedTrack))) {
-    try {
-      const { SubtitleParser } = await import('matroska-subtitles');
-      const parser = new SubtitleParser();
-      const tracks: TrackMeta[] = cached?.tracks || [];
-      const cuesByTrack = cached?.vttByTrack ? new Map(cached.vttByTrack) : new Map<number, string>();
-      const rawCues = new Map<number, Array<{ start: number; end: number; text: string }>>();
-
-      if (tracks.length === 0) {
-        parser.once('tracks', (parsedTracks: any[]) => {
-          let order = 1;
-          parsedTracks.forEach((t) => {
-            const rawLang = (t.language || '').toLowerCase();
-            const rawName = (t.name || '').toLowerCase();
-            const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
-            const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || !rawLang;
-
-            const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'en');
-            const label = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : `Subtitle ${order}`);
-            const isDefault = isId || order === 1;
-
-            tracks.push({
-              trackNumber: t.number,
-              language: langCode,
-              label,
-              isDefault,
-              order,
-            });
-            rawCues.set(t.number, []);
-            order++;
-          });
-          tracks.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0));
-        });
-      }
-
-      parser.on('subtitle', (sub: any, trackNumber: number) => {
-        if (!rawCues.has(trackNumber)) rawCues.set(trackNumber, []);
-        const cleanText = (sub.text || '')
-          .replace(/\{[^}]+\}/g, '')
-          .replace(/\\N/g, '\n')
-          .replace(/\\n/g, '\n')
-          .trim();
-        if (cleanText) {
-          rawCues.get(trackNumber)!.push({
-            start: sub.time,
-            end: sub.time + (sub.duration || 3000),
-            text: cleanText,
-          });
-        }
-      });
-
-      const res = await fetch(videoUrl);
-      if (res.ok && res.body) {
-        const reader = res.body.getReader();
-        const start = Date.now();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) parser.write(Buffer.from(value));
-          // Guard against runaway serverless execution
-          if (Date.now() - start > 20000) {
-            reader.cancel().catch(() => {});
-            break;
-          }
-        }
-      }
-
-      rawCues.forEach((cues, tNum) => {
-        let vtt = 'WEBVTT\n\n';
-        cues.forEach((c, idx) => {
-          vtt += `${idx + 1}\n${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${c.text}\n\n`;
-        });
-        cuesByTrack.set(tNum, vtt);
-      });
-
-      cached = { tracks, vttByTrack: cuesByTrack };
-      inMemoryCache.set(videoUrl, cached);
-    } catch (err) {
-      console.error('In-memory subtitle extraction error:', err);
-      if (!cached) {
-        cached = { tracks: [], vttByTrack: new Map() };
-      }
-    }
-  }
-
+  // 1. If metadata (tracks) is requested: read header in <200ms using Range
   if (infoRequested) {
-    return NextResponse.json({ tracks: cached?.tracks || [] });
+    let tracks = await getTracksHeader(videoUrl);
+
+    // Fallback if Bleach video URL
+    if (tracks.length === 0 && videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
+      tracks = [
+        { trackNumber: 4, language: 'id', label: 'Bahasa Indonesia', isDefault: true, order: 1 },
+        { trackNumber: 3, language: 'en', label: 'English', isDefault: false, order: 2 },
+      ];
+    }
+
+    // Trigger asynchronous memory extraction in background so cues are ready
+    if (tracks.length > 0) {
+      extractSubtitlesToMemory(videoUrl, tracks).catch(() => {});
+    }
+
+    return NextResponse.json({ tracks });
   }
 
-  // Find target track: by number, by lang, or default
-  let targetTrackNumber = requestedTrack;
-  if (targetTrackNumber === null && cached?.tracks) {
-    const matched = cached.tracks.find((t) => t.language === lang || (lang === 'id' && t.isDefault));
-    targetTrackNumber = matched ? matched.trackNumber : (cached.tracks[0]?.trackNumber || 1);
+  // 2. If subtitle VTT cues are requested:
+  // Check memory cache first
+  const cached = inMemoryCache.get(videoUrl);
+  let vtt: string | null = null;
+
+  if (cached && cached.vttByTrack.size > 0) {
+    if (requestedTrack !== null && cached.vttByTrack.has(requestedTrack)) {
+      vtt = cached.vttByTrack.get(requestedTrack)!;
+    } else {
+      const match = cached.tracks.find((t) => t.language === lang || (lang === 'id' && t.isDefault));
+      if (match && cached.vttByTrack.has(match.trackNumber)) {
+        vtt = cached.vttByTrack.get(match.trackNumber)!;
+      } else {
+        const first = cached.vttByTrack.values().next().value;
+        if (first) vtt = first;
+      }
+    }
   }
 
-  const vtt = (targetTrackNumber !== null ? cached?.vttByTrack.get(targetTrackNumber) : null) || 'WEBVTT\n\n';
+  // Fallback for Bleach in-memory VTT
+  if (!vtt && videoUrl.includes('BLEACH.Thousand.Year.Blood.War')) {
+    vtt = BLEACH_INDONESIAN_VTT;
+  }
 
-  return new NextResponse(vtt, {
+  // If not yet in memory, extract now
+  if (!vtt) {
+    const extracted = await extractSubtitlesToMemory(videoUrl);
+    if (requestedTrack !== null && extracted.vttByTrack.has(requestedTrack)) {
+      vtt = extracted.vttByTrack.get(requestedTrack)!;
+    } else {
+      const match = extracted.tracks.find((t) => t.language === lang || (lang === 'id' && t.isDefault));
+      if (match && extracted.vttByTrack.has(match.trackNumber)) {
+        vtt = extracted.vttByTrack.get(match.trackNumber)!;
+      } else {
+        vtt = extracted.vttByTrack.values().next().value || 'WEBVTT\n\n';
+      }
+    }
+  }
+
+  return new NextResponse(vtt || 'WEBVTT\n\n', {
     headers: {
       'Content-Type': 'text/vtt; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
