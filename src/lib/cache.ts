@@ -15,6 +15,7 @@ interface CacheEntry<T> {
 
 class MemoryCache {
   private store = new Map<string, CacheEntry<any>>();
+  private pending = new Map<string, Promise<any>>();
   private maxEntries = 1000;
 
   /**
@@ -57,6 +58,10 @@ class MemoryCache {
 
   /**
    * Gets cached value or executes fetcher if missing or expired.
+   * Features:
+   * 1. Single-flight in-flight request deduplication (prevents parallel thundering herds)
+   * 2. Stale-While-Revalidate without data corruption
+   * 3. Prevents overwriting valid populated arrays with empty arrays on transient connection glitches
    */
   async getOrFetch<T>(
     key: string,
@@ -67,36 +72,80 @@ class MemoryCache {
     const entry = this.store.get(key);
     const now = Date.now();
 
-    // Cache hit and still fresh
+    // 1. Cache hit and still completely fresh
     if (entry && now < entry.staleAt) {
       return entry.value as T;
     }
 
-    // Cache hit but stale: return stale value immediately and refresh in background (SWR)
+    // 2. If a fetch is already in flight for this exact key, share the same Promise
+    if (this.pending.has(key)) {
+      if (entry && now < entry.expiresAt) {
+        return entry.value as T;
+      }
+      return this.pending.get(key) as Promise<T>;
+    }
+
+    // 3. Cache hit but stale: return stale value immediately and execute deduped background refresh
     if (entry && now < entry.expiresAt) {
-      fetcher()
-        .then((freshValue) => {
-          this.set(key, freshValue, ttlMs, staleMs);
-        })
-        .catch((err) => {
-          console.warn(`[MemoryCache] SWR background refresh failed for key ${key}:`, err);
-        });
+      const bgPromise = (async () => {
+        try {
+          const freshValue = await fetcher();
+          // Never overwrite a valid populated list with an empty result from a transient error
+          if (
+            Array.isArray(freshValue) &&
+            freshValue.length === 0 &&
+            Array.isArray(entry.value) &&
+            entry.value.length > 0
+          ) {
+            return entry.value as T;
+          }
+          if (freshValue !== undefined && freshValue !== null) {
+            this.set(key, freshValue, ttlMs, staleMs);
+          }
+          return freshValue;
+        } catch (err) {
+          console.warn(`[MemoryCache] Background refresh warning for ${key}:`, err);
+          return entry.value as T;
+        } finally {
+          this.pending.delete(key);
+        }
+      })();
+
+      this.pending.set(key, bgPromise);
       return entry.value as T;
     }
 
-    // Cache miss or hard expired: fetch synchronously
-    try {
-      const freshValue = await fetcher();
-      this.set(key, freshValue, ttlMs, staleMs);
-      return freshValue;
-    } catch (error) {
-      // If fetcher fails but we have an expired entry, fallback to expired entry instead of crashing
-      if (entry) {
-        console.warn(`[MemoryCache] Fetcher failed for ${key}, falling back to expired cache:`, error);
-        return entry.value as T;
+    // 4. Cache miss or hard expired: fetch synchronously with in-flight deduplication
+    const fetchPromise = (async () => {
+      try {
+        const freshValue = await fetcher();
+        // Protect populated cache from being corrupted by empty result
+        if (
+          Array.isArray(freshValue) &&
+          freshValue.length === 0 &&
+          entry &&
+          Array.isArray(entry.value) &&
+          entry.value.length > 0
+        ) {
+          return entry.value as T;
+        }
+        if (freshValue !== undefined && freshValue !== null) {
+          this.set(key, freshValue, ttlMs, staleMs);
+        }
+        return freshValue;
+      } catch (error) {
+        if (entry) {
+          console.warn(`[MemoryCache] Fetcher failed for ${key}, falling back to existing cache:`, error);
+          return entry.value as T;
+        }
+        throw error;
+      } finally {
+        this.pending.delete(key);
       }
-      throw error;
-    }
+    })();
+
+    this.pending.set(key, fetchPromise);
+    return fetchPromise;
   }
 
   /**

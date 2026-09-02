@@ -9,13 +9,13 @@ import { MONGODB_CONFIG } from './config';
  * - short timeouts prevent stalled requests from hoarding connections
  */
 const options: MongoClientOptions = {
-  maxPoolSize: 1,
-  minPoolSize: 0,
-  maxIdleTimeMS: 5000,
+  maxPoolSize: 10,
+  minPoolSize: 1,
+  maxIdleTimeMS: 30000,
   serverSelectionTimeoutMS: 5000,
   connectTimeoutMS: 5000,
-  socketTimeoutMS: 10000,
-  waitQueueTimeoutMS: 5000,
+  socketTimeoutMS: 15000,
+  waitQueueTimeoutMS: 10000,
   retryReads: true,
   retryWrites: true,
   tls: true,
