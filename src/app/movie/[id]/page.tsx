@@ -166,7 +166,16 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const siteUrl = getServerBaseUrl();
   const director = movie.credits?.crew?.find((c) => c.job === 'Director');
   const cast = (movie.credits?.cast || []).slice(0, 10);
-  const similarMovies = movie.similar?.results?.slice(0, 14) || [];
+  const rawSimilar = movie.similar?.results || [];
+  const movieRootTitle = (movie.title || '').split(':')[0].split(' - ')[0].replace(/\s+\d+.*$/, '').toLowerCase().trim();
+  const similarMovies = [...rawSimilar].sort((a, b) => {
+    if (!movieRootTitle || movieRootTitle.length < 3) return 0;
+    const aMatches = (a.title || '').toLowerCase().includes(movieRootTitle);
+    const bMatches = (b.title || '').toLowerCase().includes(movieRootTitle);
+    if (aMatches && !bMatches) return -1;
+    if (!aMatches && bMatches) return 1;
+    return 0;
+  }).slice(0, 14);
   const runtime = movie.runtime
     ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m`
     : null;
@@ -487,7 +496,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
                 boxShadow: '0 0 15px rgba(6, 182, 212, 0.2)',
               }}
             >
-              <Sparkles size={16} className="text-cyan-400" />
+              <Clapperboard size={16} className="text-cyan-400" />
             </div>
             <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
               Recommended Movies
