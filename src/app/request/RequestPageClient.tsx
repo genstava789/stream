@@ -24,6 +24,7 @@ import {
   ThumbsUp,
   RefreshCw,
   ArrowRight,
+  UserPlus,
 } from 'lucide-react';
 import { Genre } from '@/types/tmdb';
 import { useAuth } from '@/context/AuthContext';
@@ -87,7 +88,7 @@ export default function RequestPageClient({
   tvGenres = [],
 }: RequestPageClientProps) {
   const router = useRouter();
-  const { user, isLoggedIn } = useAuth();
+  const { user, isLoggedIn, openAuthModal } = useAuth();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -1134,38 +1135,77 @@ export default function RequestPageClient({
         )}
 
         {/* ── LOGIN REQUIRED PROMPT MODAL (For unauthenticated users trying to request or vote) ── */}
-        {isLoginPromptOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in font-outfit">
+        {isLoginPromptOpen && !isLoggedIn && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in font-outfit"
+            onClick={() => setIsLoginPromptOpen(false)}
+          >
             <div
-              className="relative w-full max-w-md rounded-3xl bg-[#090e21] border border-cyan-500/30 shadow-[0_0_50px_rgba(6,182,212,0.2)] p-6 sm:p-8 text-center animate-scale-up font-outfit"
+              className="relative w-full max-w-md rounded-3xl bg-[#090e21] border border-cyan-500/30 shadow-[0_0_50px_rgba(6,182,212,0.25)] p-6 sm:p-8 text-center animate-scale-up font-outfit"
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                type="button"
+                onClick={() => setIsLoginPromptOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                title="Tutup"
+              >
+                <X size={18} />
+              </button>
+
               <div className="w-16 h-16 mx-auto rounded-3xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 shadow-[0_0_25px_rgba(6,182,212,0.25)]">
-                <LogIn size={30} />
+                <LogIn size={28} />
               </div>
 
               <h3 className="text-xl font-black text-white mb-2 tracking-tight">
                 Login Diperlukan
               </h3>
               <p className="text-xs sm:text-sm text-slate-400 mb-6 leading-relaxed">
-                Silakan login ke akunmu untuk membuat permintaan film/series baru atau memberikan vote pada permintaan komunitas.
+                Silakan login ke akunmu terlebih dahulu untuk membuat permintaan film atau serial TV baru dan memberikan vote pada permintaan komunitas.
               </p>
 
-              <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoginPromptOpen(false);
+                    if (openAuthModal) {
+                      openAuthModal('login', 'Silakan masuk terlebih dahulu untuk membuat permintaan film atau serial TV');
+                    } else {
+                      router.push('/login?redirect=/request');
+                    }
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-sky-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  <LogIn size={16} />
+                  <span>Login ke Akun</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoginPromptOpen(false);
+                    if (openAuthModal) {
+                      openAuthModal('register', 'Daftar akun untuk membuat permintaan film atau serial TV');
+                    } else {
+                      router.push('/register?redirect=/request');
+                    }
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-white/[0.06] hover:bg-white/10 text-slate-200 font-semibold text-xs sm:text-sm border border-white/10 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  <UserPlus size={16} />
+                  <span>Daftar Akun Baru</span>
+                </button>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-white/5">
                 <button
                   type="button"
                   onClick={() => setIsLoginPromptOpen(false)}
-                  className="w-full sm:w-1/2 px-4 py-3 rounded-2xl bg-white/[0.06] hover:bg-white/10 text-slate-300 font-semibold text-xs sm:text-sm transition-all"
+                  className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
                 >
-                  Batal
+                  Kembali menjelajah
                 </button>
-                <Link
-                  href="/login?redirect=/request"
-                  className="w-full sm:w-1/2 px-4 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5"
-                >
-                  <span>Login Sekarang</span>
-                  <ArrowRight size={14} />
-                </Link>
               </div>
             </div>
           </div>
