@@ -161,6 +161,7 @@ export default function VideoPlayer({
   const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mkvSeekCleanupRef = useRef<(() => void) | null>(null);
 
   const effectiveVideoUrl = cleanVideoUrl(videoUrl) || videoUrl || '';
   const onNextEpisodeRef = useRef(onNextEpisode);
@@ -333,7 +334,7 @@ export default function VideoPlayer({
       });
     }
 
-    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER ──
+    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER WITH ON-DEMAND SEEK ──
     const initMkvDemuxer = async () => {
       if (!isMkv) return;
       try {
@@ -341,6 +342,25 @@ export default function VideoPlayer({
         if (isCancelled) return;
 
         const parser = new SubtitleParser();
+        const addedCuesSet = new Set<string>();
+
+        const addParsedCue = (sub: any, trackNumber: number) => {
+          if (isCancelled) return;
+          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
+          if (targetTrack && typeof sub.time === 'number') {
+            const startSec = sub.time / 1000;
+            const endSec = Math.max(startSec + 0.5, (sub.time + (sub.duration || 3000)) / 1000);
+            const cleanText = cleanSubtitleText(sub.text);
+            const cueKey = `${trackNumber}_${Math.round(startSec * 10)}_${cleanText.slice(0, 15)}`;
+            if (cleanText && endSec > startSec && !addedCuesSet.has(cueKey)) {
+              addedCuesSet.add(cueKey);
+              try {
+                const cue = new VTTCue(startSec, endSec, cleanText);
+                targetTrack.addCue(cue);
+              } catch (e) {}
+            }
+          }
+        };
 
         parser.once('tracks', (tracks: any[]) => {
           if (isCancelled || !videoRef.current) return;
@@ -412,22 +432,131 @@ export default function VideoPlayer({
         });
 
         parser.on('subtitle', (sub: any, trackNumber: number) => {
-          if (isCancelled) return;
-          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
-          if (targetTrack && typeof sub.time === 'number') {
-            const startSec = sub.time / 1000;
-            const endSec = Math.max(startSec + 0.5, (sub.time + (sub.duration || 3000)) / 1000);
-            const cleanText = cleanSubtitleText(sub.text);
-            if (cleanText && endSec > startSec) {
-              try {
-                const cue = new VTTCue(startSec, endSec, cleanText);
-                targetTrack.addCue(cue);
-              } catch (e) {}
-            }
-          }
+          addParsedCue(sub, trackNumber);
         });
 
-        // Fetch streaming chunks from MKV file
+        // ── ON-DEMAND SEEK MECHANISM VIA MATROSKA CUES INDEX ──
+        let exactHeaderBuf: Uint8Array | null = null;
+        let cuePoints: { time: number; clusterPos: number }[] = [];
+        let segStart = 52;
+        const fetchedClusters = new Set<number>();
+
+        // Pre-fetch header and Cues in background so user skips are instant
+        (async () => {
+          try {
+            const headRes = await fetch(effectiveVideoUrl, {
+              headers: { Range: 'bytes=0-16384' },
+              signal: abortController.signal,
+            });
+            if (!headRes.ok || isCancelled) return;
+            const headBuf = new Uint8Array(await headRes.arrayBuffer());
+
+            // Locate segment data start
+            for (let i = 0; i < headBuf.length - 4; i++) {
+              if (headBuf[i] === 0x18 && headBuf[i + 1] === 0x53 && headBuf[i + 2] === 0x80 && headBuf[i + 3] === 0x67) {
+                segStart = i + 12;
+                break;
+              }
+            }
+
+            const { EbmlStreamDecoder, EbmlTagId } = await import('ebml-stream');
+            const seekDecoder = new EbmlStreamDecoder({
+              bufferTagIds: [EbmlTagId.Seek],
+            });
+
+            let cuesSeekPos: number | null = null;
+            seekDecoder.on('data', (chunk: any) => {
+              if (chunk.id === EbmlTagId.Seek) {
+                const idBuf = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekID)?.data;
+                if (idBuf && idBuf.toString('hex') === '1c53bb6b') {
+                  cuesSeekPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekPosition)?.data;
+                }
+              }
+            });
+            seekDecoder.write(headBuf);
+
+            if (cuesSeekPos !== null && !isCancelled) {
+              const cuesByteOffset = segStart + cuesSeekPos;
+              const cuesRes = await fetch(effectiveVideoUrl, {
+                headers: { Range: `bytes=${cuesByteOffset}-${cuesByteOffset + 400000}` },
+                signal: abortController.signal,
+              });
+              if (cuesRes.ok && !isCancelled) {
+                const cuesBuf = new Uint8Array(await cuesRes.arrayBuffer());
+                const cuesDecoder = new EbmlStreamDecoder({
+                  bufferTagIds: [EbmlTagId.CuePoint],
+                });
+                cuesDecoder.on('data', (chunk: any) => {
+                  if (chunk.id === EbmlTagId.CuePoint) {
+                    const time = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTime)?.data;
+                    const trackPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTrackPositions);
+                    const clusterPos = trackPos?.Children?.find((x: any) => x.id === EbmlTagId.CueClusterPosition)?.data;
+                    if (time !== undefined && clusterPos !== undefined) {
+                      cuePoints.push({ time, clusterPos });
+                    }
+                  }
+                });
+                cuesDecoder.write(cuesBuf);
+
+                if (cuePoints.length > 0) {
+                  const firstClusterByte = segStart + cuePoints[0].clusterPos;
+                  exactHeaderBuf = headBuf.slice(0, firstClusterByte);
+                }
+              }
+            }
+          } catch (e) {
+            // SeekHead prefetch non-fatal
+          }
+        })();
+
+        // Handler to fetch cues at any seeked time
+        const fetchCuesAtTime = async (curTimeSec: number) => {
+          if (!exactHeaderBuf || cuePoints.length === 0 || isCancelled) return;
+          const targetMs = curTimeSec * 1000;
+          let chosen = cuePoints[0];
+          for (let i = 0; i < cuePoints.length; i++) {
+            if (cuePoints[i].time <= targetMs) {
+              chosen = cuePoints[i];
+            } else {
+              break;
+            }
+          }
+          if (fetchedClusters.has(chosen.clusterPos)) return;
+          fetchedClusters.add(chosen.clusterPos);
+
+          try {
+            const clusterOffset = segStart + chosen.clusterPos;
+            const res = await fetch(effectiveVideoUrl, {
+              headers: { Range: `bytes=${clusterOffset}-${clusterOffset + 6000000}` },
+              signal: abortController.signal,
+            });
+            if (res.ok && !isCancelled) {
+              const clusterBuf = new Uint8Array(await res.arrayBuffer());
+              const seekParser = new SubtitleParser();
+              seekParser.on('subtitle', (sub: any, trackNumber: number) => {
+                addParsedCue(sub, trackNumber);
+              });
+              seekParser.write(exactHeaderBuf);
+              seekParser.write(clusterBuf);
+            }
+          } catch (e) {}
+        };
+
+        const onUserSeek = () => {
+          if (videoElement && typeof videoElement.currentTime === 'number') {
+            fetchCuesAtTime(videoElement.currentTime);
+          }
+        };
+
+        videoElement.addEventListener('seeking', onUserSeek);
+        videoElement.addEventListener('seeked', onUserSeek);
+
+        mkvSeekCleanupRef.current = () => {
+          videoElement.removeEventListener('seeking', onUserSeek);
+          videoElement.removeEventListener('seeked', onUserSeek);
+        };
+
+        // Fetch streaming chunks from MKV file for linear forward playback
         const res = await fetch(effectiveVideoUrl, {
           signal: abortController.signal,
         });
@@ -612,6 +741,10 @@ export default function VideoPlayer({
         videoElement.removeEventListener('waiting', onWaiting);
         videoElement.removeEventListener('playing', onPlaying);
         videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
+      }
+      if (mkvSeekCleanupRef.current) {
+        mkvSeekCleanupRef.current();
+        mkvSeekCleanupRef.current = null;
       }
     };
   }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv]);
