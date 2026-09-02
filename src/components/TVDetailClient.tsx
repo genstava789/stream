@@ -235,8 +235,13 @@ export default function TVDetailClient({
 
   const handleSelectEpisode = (ep: CustomEpisode) => {
     setActiveEpisode(ep);
-    if (ep.urlPath) {
-      router.push(ep.urlPath);
+    if (ep.urlPath && typeof window !== 'undefined') {
+      window.history.pushState({}, '', ep.urlPath);
+      const credit = siteConfig.useCreditTitleForRave && siteConfig.name ? ` | ${siteConfig.name}` : '';
+      const epText = ep.title?.toLowerCase().startsWith(ep.episodeLabel.toLowerCase())
+        ? ep.title
+        : `${ep.episodeLabel}: ${ep.title}`;
+      document.title = `${showTitle} - ${epText}${credit}`;
     }
   };
 
@@ -268,8 +273,8 @@ export default function TVDetailClient({
   return (
     <div className="w-full">
       {/* ── 1. Top Video Player (Edge-to-edge / Full view) ── */}
-      {activeEpisode?.videoUrl && (
-        <div className="w-full bg-black mb-4">
+      <div className="w-full bg-black mb-4">
+        {activeEpisode?.videoUrl ? (
           <VideoPlayer
             key={activeEpisode.urlPath || activeEpisode.slug || activeEpisode.videoUrl}
             videoUrl={activeEpisode.videoUrl}
@@ -281,8 +286,14 @@ export default function TVDetailClient({
             nextEpisodeTitle={nextEpisode ? `${nextEpisode.episodeLabel}: ${nextEpisode.title}` : undefined}
             prevEpisodeTitle={prevEpisode ? `${prevEpisode.episodeLabel}: ${prevEpisode.title}` : undefined}
           />
-        </div>
-      )}
+        ) : (
+          <div className="w-full aspect-video max-h-[72vh] flex items-center justify-center bg-black/90">
+            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center animate-pulse">
+              <div className="w-6 h-6 rounded-full bg-cyan-400/40" />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── 2. Open Episode Details & Actions ── */}
       <div className="w-full px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 2xl:px-14 pt-2">
@@ -292,7 +303,10 @@ export default function TVDetailClient({
             {prevEpisode ? (
               <Link
                 href={prevEpisode.urlPath || '#'}
-                onClick={() => handleSelectEpisode(prevEpisode)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSelectEpisode(prevEpisode);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 text-slate-200 bg-white/5 hover:bg-white/10 hover:text-white active:scale-95 border border-white/10"
                 title={`Episode Sebelumnya: ${prevEpisode.title}`}
               >
@@ -324,7 +338,10 @@ export default function TVDetailClient({
             {nextEpisode ? (
               <Link
                 href={nextEpisode.urlPath || '#'}
-                onClick={() => handleSelectEpisode(nextEpisode)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSelectEpisode(nextEpisode);
+                }}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 shadow-md text-white bg-gradient-to-r from-cyan-500 to-purple-600 hover:scale-105 active:scale-95 shadow-cyan-500/25"
                 title={`Episode Berikutnya: ${nextEpisode.title}`}
               >
@@ -509,7 +526,10 @@ export default function TVDetailClient({
                     <Link
                       key={ep.slug}
                       href={ep.urlPath || `/tv/${showTitle}`}
-                      onClick={() => handleSelectEpisode(ep)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleSelectEpisode(ep);
+                      }}
                       className={`flex-shrink-0 flex items-center justify-center rounded-xl font-bold transition-all duration-150 min-w-[50px] sm:min-w-[56px] h-9 sm:h-10 px-3 ${
                         isActive
                           ? 'text-cyan-400 font-extrabold'
