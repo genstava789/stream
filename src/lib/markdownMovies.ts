@@ -758,8 +758,8 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
           }
         }
 
-        // Fallback to local files only if MongoDB is unconfigured or empty
-        if (movieDocs.length === 0) {
+        // Fallback to local files only if MongoDB is genuinely not configured
+        if (movieDocs.length === 0 && !isMongoConfigured()) {
           ensureContentDirExists();
           const files = getAllCustomMovieFiles();
           const diskMovies: any[] = [];
@@ -794,60 +794,45 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
           movieDocs = diskMovies;
         }
 
-        return await Promise.all(
-          movieDocs.map(async (m) => {
-            let poster: string | null = null;
-            let backdrop: string | null = null;
-            let rating = m.rating || 0;
-            let overview = m.deskripsi || '';
-            let genreIds: number[] = [];
-            let releaseDate = '2026-01-01';
+        return movieDocs.map((m) => {
+          let poster: string | null = null;
+          let backdrop: string | null = null;
+          let rating = Number(m.rating) || 0;
+          let overview = m.deskripsi || '';
+          let genreIds: number[] = [];
+          let releaseDate = '2026-01-01';
 
-            if (m.tmdb_id) {
-              try {
-                const tmdb = await getMovieDetails(Number(m.tmdb_id));
-                if (tmdb) {
-                  poster = tmdb.poster_path || null;
-                  backdrop = tmdb.backdrop_path || null;
-                  if (!overview && tmdb.overview) overview = tmdb.overview;
-                  if (!rating && tmdb.vote_average) rating = Math.round(tmdb.vote_average * 10) / 10;
-                  if (tmdb.release_date) releaseDate = tmdb.release_date;
-                  if (Array.isArray(tmdb.genres)) {
-                    genreIds = tmdb.genres.map((g: any) => g.id);
-                  } else if (Array.isArray((tmdb as any).genre_ids)) {
-                    genreIds = (tmdb as any).genre_ids;
-                  }
-                }
-              } catch {}
-            }
+          if (m.image_url) {
+            poster = getImageUrl(m.image_url, 'w500');
+            backdrop = getImageUrl(m.image_url, 'original');
+          }
 
-            return {
-              id: m.tmdb_id || m.slug,
-              title: m.title || m.slug,
-              overview,
-              poster_path: poster,
-              backdrop_path: backdrop,
-              release_date: releaseDate,
-              vote_average: rating,
-              vote_count: 0,
-              genre_ids: genreIds,
-              popularity: 100,
-              adult: false,
-              video: false,
-              isCustomMarkdown: true,
-              media_type: 'movie',
-              customSlug: m.slug,
-              customVideoUrl: m.videourl,
-              customImageUrl: m.image_url || null,
-              featured: Boolean(m.featured),
-              trending: Boolean(m.trending),
-              language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
-              weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
-              updatedAt: m.updatedAt || m.createdAt || 0,
-              createdAt: m.createdAt || m.updatedAt || 0,
-            };
-          })
-        );
+          return {
+            id: m.tmdb_id || m.slug,
+            title: m.title || m.slug,
+            overview,
+            poster_path: poster,
+            backdrop_path: backdrop,
+            release_date: releaseDate,
+            vote_average: rating,
+            vote_count: 0,
+            genre_ids: genreIds,
+            popularity: 100,
+            adult: false,
+            video: false,
+            isCustomMarkdown: true,
+            media_type: 'movie',
+            customSlug: m.slug,
+            customVideoUrl: m.videourl,
+            customImageUrl: m.image_url || null,
+            featured: Boolean(m.featured),
+            trending: Boolean(m.trending),
+            language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
+            weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+            updatedAt: Number(m.updatedAt) || Number(m.createdAt) || 0,
+            createdAt: Number(m.createdAt) || Number(m.updatedAt) || 0,
+          };
+        });
       } catch (err) {
         console.warn('[markdownMovies] getAllCustomMoviesForList error:', err);
         return [];

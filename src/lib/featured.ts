@@ -123,8 +123,8 @@ export async function getEnrichedFeaturedMovies(options: {
       await enforceFeaturedLimit('movie', limit).catch(() => {});
       let customMovies = await getAllFeaturedCustomMovies().catch(() => []);
 
-      // If customMovies is empty (e.g. on Cloudflare Workers edge isolate without fs)
-      if (customMovies.length === 0 && typeof STATIC_MOVIE_FILES === 'object') {
+      // If customMovies is empty (only when MongoDB is not configured, e.g. edge isolate without DB)
+      if (customMovies.length === 0 && !isMongoConfigured() && typeof STATIC_MOVIE_FILES === 'object') {
         const staticList: FeaturedItem[] = [];
         for (const [filePath, rawContent] of Object.entries(STATIC_MOVIE_FILES)) {
           try {
@@ -203,8 +203,8 @@ export async function getEnrichedFeaturedTV(options: {
       await enforceFeaturedLimit('tv', limit).catch(() => {});
       let customTV = await getAllFeaturedCustomTV().catch(() => []);
 
-      // If customTV is empty (e.g. on Cloudflare Workers edge isolate without fs)
-      if (customTV.length === 0 && typeof STATIC_TV_FILES === 'object') {
+      // If customTV is empty (only when MongoDB is not configured, e.g. edge isolate without DB)
+      if (customTV.length === 0 && !isMongoConfigured() && typeof STATIC_TV_FILES === 'object') {
         const staticList: FeaturedItem[] = [];
         for (const [filePath, rawContent] of Object.entries(STATIC_TV_FILES)) {
           if (!filePath.endsWith('_index.md') && !filePath.endsWith('index.md')) continue;

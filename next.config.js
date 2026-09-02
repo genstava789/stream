@@ -18,9 +18,13 @@ const nextConfig = {
   compress: true,
   swcMinify: true,
 
-  // Optimasi tree-shaking untuk modul berat
+  // Optimasi tree-shaking untuk modul berat dan eliminasi stale router cache
   experimental: {
     optimizePackageImports: ['lucide-react', 'tinacms'],
+    staleTimes: {
+      dynamic: 0,
+      static: 180,
+    },
   },
 
   // Optimasi webpack bundler untuk client/server separation
