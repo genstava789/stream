@@ -227,7 +227,6 @@ export default async function TVShowPage({ params }: PageProps) {
           duration={durationIso}
           urlPath={`/tv/${params.slug.join('/')}`}
           embedPath={`/embed/tv/${params.slug.join('/')}`}
-          videoUrl={videoUrl}
           siteName={siteConfig.name}
           initialBaseUrl={siteUrl}
         />
