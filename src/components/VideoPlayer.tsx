@@ -127,6 +127,7 @@ function cleanSubtitleText(raw: string): string {
   if (!raw) return '';
   return raw
     .replace(/\{[^}]+\}/g, '')
+    .replace(/<[^>]+>/g, '')
     .replace(/\\N/g, '\n')
     .replace(/\\n/g, '\n')
     .trim();
@@ -160,7 +161,6 @@ export default function VideoPlayer({
   const [showNextPrompt, setShowNextPrompt] = useState(false);
   const [nextCountdown, setNextCountdown] = useState(8);
   const [isMounted, setIsMounted] = useState(false);
-  const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
@@ -179,6 +179,8 @@ export default function VideoPlayer({
     typeof window !== 'undefined' && effectiveVideoUrl
       ? `filmes_progress_${encodeURIComponent(effectiveVideoUrl.split('?')[0])}`
       : null;
+
+  const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
 
   // Helper to normalize subtitle prop into array
   const normalizeSubtitles = useCallback((): SubtitleTrackItem[] => {
@@ -203,62 +205,9 @@ export default function VideoPlayer({
     return [];
   }, [subtitles]);
 
+  const extSubs = normalizeSubtitles();
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
-
-  // Load embedded/external subtitles in background without blocking player initialization
-  useEffect(() => {
-    let isCancelled = false;
-
-    const loadSubtitles = async () => {
-      try {
-        let items = normalizeSubtitles();
-
-        // If no external subtitle provided, query embedded container subtitle metadata
-        if (items.length === 0 && effectiveVideoUrl) {
-          try {
-            const infoRes = await fetch(`/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&info=true`);
-            if (infoRes.ok) {
-              const data = await infoRes.json();
-              if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
-                items = data.tracks.map((t: any) => ({
-                  src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&track=${t.trackNumber}`,
-                  label: t.label || (t.language === 'id' ? 'Bahasa Indonesia' : t.language === 'en' ? 'English' : `Subtitle ${t.order}`),
-                  srcLang: t.language || 'id',
-                  default: Boolean(t.isDefault),
-                }));
-              }
-            }
-          } catch (e) {
-            console.warn('[subtitles] Could not read container subtitle metadata:', e);
-          }
-        }
-
-        if (!isCancelled) {
-          setResolvedSubtitles(items);
-        }
-      } catch (err) {
-        console.warn('[subtitles] Subtitle loading error:', err);
-      }
-    };
-
-    loadSubtitles();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [normalizeSubtitles, effectiveVideoUrl]);
-
-  // Synchronize dynamic subtitle tracks with Plyr captions setup
-  useEffect(() => {
-    if (playerInstanceRef.current && playerInstanceRef.current.captions) {
-      try {
-        playerInstanceRef.current.captions.setup();
-      } catch (e) {}
-    }
-  }, [resolvedSubtitles]);
-
-  const extSubs = normalizeSubtitles();
 
   // Main video player initialization effect - RUNS IMMEDIATELY on mount
   useEffect(() => {
@@ -383,6 +332,122 @@ export default function VideoPlayer({
         scanSubtitleTracks(hlsInstanceRef.current);
       });
     }
+
+    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER (from commit cc9fab1) ──
+    const initMkvDemuxer = async () => {
+      if (!isMkv) return;
+      try {
+        const { SubtitleParser } = await import('matroska-subtitles');
+        if (isCancelled) return;
+
+        const parser = new SubtitleParser();
+
+        parser.once('tracks', (tracks: any[]) => {
+          if (isCancelled || !videoRef.current) return;
+          const mkvDetected: DetectedSubtitle[] = [];
+
+          const hasIndo = tracks.some((t) => {
+            const l = (t.language || '').toLowerCase();
+            const n = (t.name || '').toLowerCase();
+            return l === 'ind' || l === 'id' || n.includes('indo');
+          });
+
+          tracks.forEach((t) => {
+            const trackNumber = t.number;
+            const rawLang = (t.language || '').toLowerCase();
+            const rawName = (t.name || '').toLowerCase();
+
+            const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
+            const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || (!rawLang && hasIndo);
+
+            const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'und');
+            const langLabel = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : getLanguageLabel(langCode, t.name));
+
+            if (videoRef.current) {
+              try {
+                const textTrack = videoRef.current.addTextTrack(
+                  'subtitles',
+                  langLabel,
+                  langCode
+                );
+                textTrack.mode = 'hidden';
+                mkvTracksMapRef.current.set(trackNumber, textTrack);
+              } catch (e) {
+                console.error('Failed to addTextTrack for MKV subtitle:', e);
+              }
+            }
+
+            mkvDetected.push({
+              id: `mkv-${trackNumber}`,
+              label: langLabel,
+              language: langCode,
+              type: 'mkv',
+              trackNumber,
+            });
+          });
+
+          // Auto-enable Indonesian subtitle by default if available, or first track
+          if (mkvDetected.length > 0) {
+            const indoTrack = mkvDetected.find(
+              (t) =>
+                t.language === 'ind' ||
+                t.language === 'id' ||
+                t.label.toLowerCase().includes('indo')
+            );
+            const chosen = indoTrack || mkvDetected[0];
+            if (chosen && chosen.trackNumber) {
+              const target = mkvTracksMapRef.current.get(chosen.trackNumber);
+              if (target) {
+                target.mode = 'showing';
+              }
+            }
+          }
+
+          // Register newly added text tracks in Plyr
+          if (playerInstanceRef.current && (playerInstanceRef.current as any).captions) {
+            try {
+              (playerInstanceRef.current as any).captions.setup();
+            } catch (e) {}
+          }
+        });
+
+        parser.on('subtitle', (sub: any, trackNumber: number) => {
+          if (isCancelled) return;
+          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
+          if (targetTrack && typeof sub.time === 'number') {
+            const startSec = sub.time / 1000;
+            const endSec = Math.max(startSec + 0.5, (sub.time + (sub.duration || 3000)) / 1000);
+            const cleanText = cleanSubtitleText(sub.text);
+            if (cleanText && endSec > startSec) {
+              try {
+                const cue = new VTTCue(startSec, endSec, cleanText);
+                targetTrack.addCue(cue);
+              } catch (e) {}
+            }
+          }
+        });
+
+        // Fetch streaming chunks directly from MKV file (works universally for any S3 bucket)
+        const res = await fetch(effectiveVideoUrl, {
+          signal: abortController.signal,
+        });
+
+        if (res.body) {
+          const reader = res.body.getReader();
+          while (!isCancelled) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.log('MKV subtitle stream complete or handled:', err?.message);
+        }
+      }
+    };
 
     const initModules = async () => {
       try {
@@ -530,8 +595,18 @@ export default function VideoPlayer({
           }
         });
 
+        player.on('languagechange', () => {
+          const currentTrackIndex = (player as any).currentTrack;
+          if (videoRef.current && videoRef.current.textTracks) {
+            for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+              videoRef.current.textTracks[i].mode = (i === currentTrackIndex) ? 'showing' : 'hidden';
+            }
+          }
+        });
+
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
+        initMkvDemuxer();
       } catch (err) {
         console.error('Error loading video player modules:', err);
       }
@@ -542,6 +617,7 @@ export default function VideoPlayer({
     return () => {
       isCancelled = true;
       abortController.abort();
+      mkvTracksMapRef.current.clear();
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
@@ -897,16 +973,17 @@ export default function VideoPlayer({
                     <source src={effectiveVideoUrl} type="video/mp4" />
                   )}
 
-                  {resolvedSubtitles.map((sub, idx) => (
-                    <track
-                      key={`${sub.src}-${idx}`}
-                      kind="subtitles"
-                      label={sub.label || `Subtitle ${idx + 1}`}
-                      srcLang={sub.srcLang || 'id'}
-                      src={sub.src}
-                      default={sub.default}
-                    />
-                  ))}
+                  {!isMkv &&
+                    extSubs.map((sub, idx) => (
+                      <track
+                        key={`${sub.src}-${idx}`}
+                        kind="subtitles"
+                        label={sub.label || `Subtitle ${idx + 1}`}
+                        srcLang={sub.srcLang || 'id'}
+                        src={sub.src}
+                        default={sub.default || idx === 0}
+                      />
+                    ))}
                   Your browser does not support the video tag.
                 </video>
               </div>
