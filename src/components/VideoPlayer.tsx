@@ -203,7 +203,7 @@ export default function VideoPlayer({
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
 
-  // Convert external SRT subtitles to WebVTT Blob URLs for native HTML5 & Plyr compatibility
+  // Load & store subtitles temporarily in browser RAM as Blob URLs; auto-clear on unmount/refresh
   useEffect(() => {
     let isCancelled = false;
     const blobUrls: string[] = [];
@@ -211,42 +211,62 @@ export default function VideoPlayer({
     const loadSubtitles = async () => {
       let items = normalizeSubtitles();
 
-      // If no external subtitle provided (e.g. for TV episodes or MKV files),
-      // automatically attach the full WebVTT subtitle track!
-      if (items.length === 0 && (isMkv || effectiveVideoUrl)) {
-        const defaultVtt = effectiveVideoUrl.includes('BLEACH.Thousand.Year.Blood.War')
-          ? '/subtitles/bleach-e45-ind.vtt'
-          : `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`;
-        items = [
-          {
-            src: defaultVtt,
-            label: 'Bahasa Indonesia',
-            srcLang: 'id',
-            default: true,
-          },
-        ];
+      // If no external subtitle provided (e.g. MKV container or TV episodes),
+      // read embedded container subtitle metadata in order with default track first
+      if (items.length === 0 && effectiveVideoUrl) {
+        try {
+          const infoRes = await fetch(`/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&info=true`);
+          if (infoRes.ok) {
+            const data = await infoRes.json();
+            if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
+              items = data.tracks.map((t: any) => ({
+                src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&track=${t.trackNumber}`,
+                label: t.label || (t.language === 'id' ? 'Bahasa Indonesia' : `Subtitle ${t.order}`),
+                srcLang: t.language || 'id',
+                default: Boolean(t.isDefault),
+              }));
+            }
+          }
+        } catch (e) {
+          console.warn('Could not read container subtitle metadata:', e);
+        }
+
+        // Fallback default track if info fetch failed
+        if (items.length === 0) {
+          items = [
+            {
+              src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
+              label: 'Bahasa Indonesia',
+              srcLang: 'id',
+              default: true,
+            },
+          ];
+        }
       }
 
+      // Convert all subtitles to in-memory Blob URLs stored purely in browser memory
       const updated: SubtitleTrackItem[] = [];
       for (const item of items) {
-        if (item.src && (item.src.toLowerCase().includes('.srt') || !item.src.toLowerCase().includes('.vtt'))) {
-          try {
-            const res = await fetch(item.src);
-            if (res.ok) {
-              const text = await res.text();
-              const vttText = srtToVtt(text);
-              const blob = new Blob([vttText], { type: 'text/vtt' });
-              const blobUrl = URL.createObjectURL(blob);
-              blobUrls.push(blobUrl);
-              updated.push({
-                ...item,
-                src: blobUrl,
-              });
-              continue;
+        if (!item.src) continue;
+        try {
+          const res = await fetch(item.src);
+          if (res.ok) {
+            let text = await res.text();
+            if (item.src.toLowerCase().includes('.srt')) {
+              text = srtToVtt(text);
             }
-          } catch (e) {
-            console.warn('Could not convert external subtitle to VTT:', e);
+            // Create in-memory Blob URL purely in browser memory (ephemeral RAM)
+            const blob = new Blob([text], { type: 'text/vtt;charset=utf-8' });
+            const blobUrl = URL.createObjectURL(blob);
+            blobUrls.push(blobUrl);
+            updated.push({
+              ...item,
+              src: blobUrl,
+            });
+            continue;
           }
+        } catch (e) {
+          console.warn('Could not store subtitle in browser memory:', e);
         }
         updated.push(item);
       }
@@ -258,9 +278,14 @@ export default function VideoPlayer({
 
     loadSubtitles();
 
+    // Automatically clear in-memory Blob URLs when user navigates away or switches episode
     return () => {
       isCancelled = true;
-      blobUrls.forEach((url) => URL.revokeObjectURL(url));
+      blobUrls.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {}
+      });
     };
   }, [normalizeSubtitles, isMkv, effectiveVideoUrl]);
 
@@ -479,7 +504,7 @@ export default function VideoPlayer({
           settings: ['captions', 'quality', 'speed', 'loop'],
           captions: {
             active: true,
-            language: 'auto',
+            language: 'id',
             update: true,
           },
           seekTime: 10,
@@ -489,16 +514,49 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
+        // Ensure default subtitle track is active and displaying
+        const ensureCaptionsActive = () => {
+          try {
+            if (player.captions) {
+              const tracks = videoRef.current?.textTracks;
+              if (tracks && tracks.length > 0) {
+                if (tracks[0].mode !== 'showing') {
+                  tracks[0].mode = 'showing';
+                }
+              }
+              if (typeof player.currentTrack === 'number' && player.currentTrack < 0) {
+                player.currentTrack = 0;
+              }
+            }
+          } catch (e) {}
+        };
+
+        player.on('ready', () => {
+          ensureCaptionsActive();
+        });
+
+        player.on('canplay', () => {
+          setIsBuffering(false);
+          ensureCaptionsActive();
+        });
+
+        player.on('canplaythrough', () => {
+          setIsBuffering(false);
+        });
+
         // Direct Play in Player Dismisses Continue Watching Prompt
         player.on('play', () => {
           setIsPlaying(true);
+          setIsBuffering(false);
           setShowResumePrompt(false);
+          ensureCaptionsActive();
         });
 
         player.on('playing', () => {
           setIsPlaying(true);
           setIsBuffering(false);
           setShowResumePrompt(false);
+          ensureCaptionsActive();
         });
 
         player.on('seeking', () => {
@@ -507,19 +565,25 @@ export default function VideoPlayer({
         });
 
         player.on('seeked', () => {
+          setIsBuffering(false);
           refreshActiveCaptions();
+          ensureCaptionsActive();
         });
 
         player.on('pause', () => {
           setIsPlaying(false);
+          setIsBuffering(false);
         });
 
         player.on('waiting', () => {
-          setIsBuffering(true);
+          if (videoRef.current && videoRef.current.paused) {
+            setIsBuffering(true);
+          }
         });
 
         // Track and persist playback progress
         player.on('timeupdate', () => {
+          setIsBuffering(false);
           refreshActiveCaptions();
           const cur = Math.floor(player.currentTime);
           const dur = Math.floor(player.duration || 0);
@@ -805,17 +869,7 @@ export default function VideoPlayer({
             </div>
           )}
 
-          {/* ── 4. Buffering Spinner ── */}
-          {isBuffering && isPlaying && !hasError && (
-            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-              <div className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-md">
-                <Loader2 size={28} className="text-cyan-400 animate-spin" />
-                <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase">
-                  Memuat...
-                </span>
-              </div>
-            </div>
-          )}
+
 
           {/* ── 5. Video Canvas Container with Declarative <video> in JSX ── */}
           <div
@@ -928,9 +982,7 @@ export default function VideoPlayer({
                     ? resolvedSubtitles
                     : [
                         {
-                          src: effectiveVideoUrl.includes('BLEACH.Thousand.Year.Blood.War')
-                            ? '/subtitles/bleach-e45-ind.vtt'
-                            : `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
+                          src: `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
                           label: 'Bahasa Indonesia',
                           srcLang: 'id',
                           default: true,

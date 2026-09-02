@@ -850,7 +850,8 @@ input:focus-visible {
   transform: translate(-50%, -50%) !important;
 }
 
-.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid {
+.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid,
+.plyr-custom-wrapper .plyr.plyr--playing .plyr__loading {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
@@ -861,6 +862,9 @@ input:focus-visible {
    ========================================================================= */
 
 .plyr-custom-wrapper .plyr__captions {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
   bottom: 14px !important;
   left: 0 !important;
   right: 0 !important;
