@@ -916,34 +916,22 @@ export default function VideoPlayer({
             ) : (
               /* Declarative <video> tag in JSX isolated with key */
               <div
-                key={effectiveVideoUrl}
+                key={`${effectiveVideoUrl}_${title || ''}`}
                 className="w-full h-full flex items-center justify-center plyr-custom-wrapper"
               >
                 <video
                   ref={videoRef}
+                  src={isMounted ? effectiveVideoUrl : undefined}
                   className="plyr-react plyr w-full h-full"
                   playsInline
-                  preload="metadata"
+                  crossOrigin="anonymous"
                   poster={poster}
                 >
-                  {isMounted && (
-                    <source
-                      src={effectiveVideoUrl}
-                      type={
-                        isHls
-                          ? 'application/x-mpegURL'
-                          : isMkv
-                          ? 'video/x-matroska'
-                          : 'video/mp4'
-                      }
-                    />
-                  )}
-                  {isMounted && isMkv && (
-                    <source src={effectiveVideoUrl} type="video/webm" />
-                  )}
-                  {isMounted && isMkv && (
-                    <source src={effectiveVideoUrl} type="video/mp4" />
-                  )}
+                  <source
+                    src={isMounted ? effectiveVideoUrl : ''}
+                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
+                  />
+                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
                   {isMounted &&
                     extSubs.map((sub, idx) => (

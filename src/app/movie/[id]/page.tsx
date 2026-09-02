@@ -215,6 +215,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
           duration={durationIso}
           urlPath={`/movie/${params.id}`}
           embedPath={`/embed/movie/${params.id}`}
+          videoUrl={videoUrl}
           siteName={siteConfig.name}
           initialBaseUrl={siteUrl}
         />

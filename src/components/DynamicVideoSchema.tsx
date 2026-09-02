@@ -12,6 +12,7 @@ export interface DynamicVideoSchemaProps {
   duration?: string;
   urlPath: string; // e.g. "/movie/toy-story-5-2026" or "/tv/bleach/s1/e1"
   embedPath: string; // e.g. "/embed/movie/toy-story-5-2026"
+  videoUrl?: string | null; // direct video media stream URL e.g. .mp4 / .mkv / .m3u8
   siteName?: string;
   initialBaseUrl?: string;
 }
@@ -24,6 +25,7 @@ export default function DynamicVideoSchema({
   duration,
   urlPath,
   embedPath,
+  videoUrl,
   siteName = siteConfig.name,
   initialBaseUrl,
 }: DynamicVideoSchemaProps) {
@@ -65,7 +67,7 @@ export default function DynamicVideoSchema({
     thumbnailUrl: [thumbnailUrl],
     uploadDate: uploadDate,
     ...(duration ? { duration } : {}),
-    contentUrl: pageUrl,
+    contentUrl: videoUrl || pageUrl,
     embedUrl: embedUrl,
     publisher: {
       '@type': 'Organization',
@@ -99,6 +101,8 @@ export default function DynamicVideoSchema({
       <meta property="og:video:type" content="text/html" />
       <meta property="og:video:width" content="1920" />
       <meta property="og:video:height" content="1080" />
+      {videoUrl && <meta property="og:video:stream" content={videoUrl} />}
+      {videoUrl && <meta name="twitter:player:stream" content={videoUrl} />}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData, null, 2) }}

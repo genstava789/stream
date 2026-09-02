@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Bookmark,
   Film,
@@ -17,7 +19,6 @@ import TrailerModal from '@/components/TrailerModal';
 import VideoPlayer from '@/components/VideoPlayer';
 import ShareButton from '@/components/ShareButton';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
-import DynamicVideoSchema from '@/components/DynamicVideoSchema';
 import { CustomSeason, CustomEpisode } from '@/lib/markdownTV';
 import { useAuth } from '@/context/AuthContext';
 import { getBaseUrl, getAbsoluteUrl } from '@/lib/urls';
@@ -127,6 +128,7 @@ export default function TVDetailClient({
   defaultBackdrop,
 }: TVDetailPlayerSectionProps) {
   const { addToHistory } = useAuth();
+  const router = useRouter();
   const [activeEpisode, setActiveEpisode] = useState<CustomEpisode | null>(initialActiveEpisode);
 
   const initialSeasonIndex = seasons.findIndex((s) =>
@@ -137,6 +139,18 @@ export default function TVDetailClient({
   );
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
+
+  useEffect(() => {
+    setActiveEpisode(initialActiveEpisode);
+    if (initialActiveEpisode) {
+      const seasonIdx = seasons.findIndex((s) =>
+        s.episodes.some((e) => e.slug === initialActiveEpisode.slug)
+      );
+      if (seasonIdx >= 0) {
+        setSelectedSeasonIndex(seasonIdx);
+      }
+    }
+  }, [initialActiveEpisode, seasons]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -221,8 +235,8 @@ export default function TVDetailClient({
 
   const handleSelectEpisode = (ep: CustomEpisode) => {
     setActiveEpisode(ep);
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', ep.urlPath);
+    if (ep.urlPath) {
+      router.push(ep.urlPath);
     }
   };
 
@@ -253,24 +267,11 @@ export default function TVDetailClient({
 
   return (
     <div className="w-full">
-      {/* Dynamic Video Meta & Schema for Third-Party Players */}
-      {activeEpisode?.videoUrl && (
-        <DynamicVideoSchema
-          title={currentVideoTitle}
-          description={activeEpisode.overview || currentVideoTitle}
-          thumbnailUrl={activeEpisode.imageUrl || defaultBackdrop || ''}
-          uploadDate="2026-08-24T00:00:00+07:00"
-          urlPath={activeEpisode.urlPath || `/tv/${showTitle}`}
-          embedPath={activeEpisode.urlPath ? `/embed${activeEpisode.urlPath}` : `/embed/tv/${showTitle}`}
-          siteName={siteConfig.name}
-          initialBaseUrl={siteUrl}
-        />
-      )}
-
       {/* ── 1. Top Video Player (Edge-to-edge / Full view) ── */}
       {activeEpisode?.videoUrl && (
         <div className="w-full bg-black mb-4">
           <VideoPlayer
+            key={activeEpisode.urlPath || activeEpisode.slug || activeEpisode.videoUrl}
             videoUrl={activeEpisode.videoUrl}
             title={currentVideoTitle}
             poster={activeEpisode.imageUrl || defaultBackdrop}
@@ -288,21 +289,28 @@ export default function TVDetailClient({
         {/* Episode Navigation Quick Bar (Prev / Next Episode Buttons) */}
         {allEpisodes.length > 1 && (
           <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-white/[0.08]">
-            <button
-              type="button"
-              onClick={() => prevEpisode && handleSelectEpisode(prevEpisode)}
-              disabled={!prevEpisode}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 ${
-                prevEpisode
-                  ? 'text-slate-200 bg-white/5 hover:bg-white/10 hover:text-white active:scale-95 border border-white/10'
-                  : 'text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50'
-              }`}
-              title={prevEpisode ? `Episode Sebelumnya: ${prevEpisode.title}` : 'Episode Pertama'}
-            >
-              <ChevronLeft size={15} />
-              <span className="hidden xs:inline">Episode Sebelumnya</span>
-              <span className="xs:hidden">Prev</span>
-            </button>
+            {prevEpisode ? (
+              <Link
+                href={prevEpisode.urlPath || '#'}
+                onClick={() => handleSelectEpisode(prevEpisode)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 text-slate-200 bg-white/5 hover:bg-white/10 hover:text-white active:scale-95 border border-white/10"
+                title={`Episode Sebelumnya: ${prevEpisode.title}`}
+              >
+                <ChevronLeft size={15} />
+                <span className="hidden xs:inline">Episode Sebelumnya</span>
+                <span className="xs:hidden">Prev</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50"
+              >
+                <ChevronLeft size={15} />
+                <span className="hidden xs:inline">Episode Sebelumnya</span>
+                <span className="xs:hidden">Prev</span>
+              </button>
+            )}
 
             <div className="text-center">
               <span className="text-xs font-bold text-cyan-300">
@@ -313,21 +321,28 @@ export default function TVDetailClient({
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => nextEpisode && handleSelectEpisode(nextEpisode)}
-              disabled={!nextEpisode}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 shadow-md ${
-                nextEpisode
-                  ? 'text-white bg-gradient-to-r from-cyan-500 to-purple-600 hover:scale-105 active:scale-95 shadow-cyan-500/25'
-                  : 'text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50'
-              }`}
-              title={nextEpisode ? `Episode Berikutnya: ${nextEpisode.title}` : 'Episode Terakhir'}
-            >
-              <span className="hidden xs:inline">Episode Berikutnya</span>
-              <span className="xs:hidden">Next</span>
-              <ChevronRight size={15} />
-            </button>
+            {nextEpisode ? (
+              <Link
+                href={nextEpisode.urlPath || '#'}
+                onClick={() => handleSelectEpisode(nextEpisode)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 shadow-md text-white bg-gradient-to-r from-cyan-500 to-purple-600 hover:scale-105 active:scale-95 shadow-cyan-500/25"
+                title={`Episode Berikutnya: ${nextEpisode.title}`}
+              >
+                <span className="hidden xs:inline">Episode Berikutnya</span>
+                <span className="xs:hidden">Next</span>
+                <ChevronRight size={15} />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50"
+              >
+                <span className="hidden xs:inline">Episode Berikutnya</span>
+                <span className="xs:hidden">Next</span>
+                <ChevronRight size={15} />
+              </button>
+            )}
           </div>
         )}
 
@@ -491,9 +506,9 @@ export default function TVDetailClient({
                   const badgeText = `E${ep.episodeNumber}`;
 
                   return (
-                    <button
+                    <Link
                       key={ep.slug}
-                      type="button"
+                      href={ep.urlPath || `/tv/${showTitle}`}
                       onClick={() => handleSelectEpisode(ep)}
                       className={`flex-shrink-0 flex items-center justify-center rounded-xl font-bold transition-all duration-150 min-w-[50px] sm:min-w-[56px] h-9 sm:h-10 px-3 ${
                         isActive
@@ -514,7 +529,7 @@ export default function TVDetailClient({
                       title={`${ep.episodeLabel}: ${ep.title}`}
                     >
                       <span className="text-xs sm:text-sm font-black">{badgeText}</span>
-                    </button>
+                    </Link>
                   );
                 })}
               </div>
