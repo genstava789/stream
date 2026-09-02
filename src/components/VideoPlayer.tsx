@@ -133,13 +133,6 @@ function cleanSubtitleText(raw: string): string {
     .trim();
 }
 
-function srtToVtt(srtText: string): string {
-  const text = srtText.replace(/\r\n|\r/g, '\n').trim();
-  let vtt = 'WEBVTT\n\n';
-  const converted = text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-  return vtt + converted;
-}
-
 export default function VideoPlayer({
   videoUrl,
   title,
@@ -161,9 +154,11 @@ export default function VideoPlayer({
   const [showNextPrompt, setShowNextPrompt] = useState(false);
   const [nextCountdown, setNextCountdown] = useState(8);
   const [isMounted, setIsMounted] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
+  const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -179,8 +174,6 @@ export default function VideoPlayer({
     typeof window !== 'undefined' && effectiveVideoUrl
       ? `filmes_progress_${encodeURIComponent(effectiveVideoUrl.split('?')[0])}`
       : null;
-
-  const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
 
   // Helper to normalize subtitle prop into array
   const normalizeSubtitles = useCallback((): SubtitleTrackItem[] => {
@@ -209,7 +202,7 @@ export default function VideoPlayer({
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
 
-  // Main video player initialization effect - RUNS IMMEDIATELY on mount
+  // Main video player initialization effect
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (youtubeId || vimeoId) return;
@@ -225,6 +218,7 @@ export default function VideoPlayer({
     setShowResumePrompt(false);
     setShowNextPrompt(false);
     setResumeTime(null);
+    mkvTracksMapRef.current.clear();
 
     // Check saved playback progress
     if (storageKey) {
@@ -304,7 +298,7 @@ export default function VideoPlayer({
         });
       }
 
-      // Auto-enable Indonesian caption by default on HLS
+      // Auto-enable Indonesian or first available caption by default
       if (found.length > 0) {
         const indoTrack = found.find(
           (t) =>
@@ -313,10 +307,16 @@ export default function VideoPlayer({
             t.label.toLowerCase().includes('indo')
         );
         const chosen = indoTrack || found[0];
-        if (chosen && chosen.type === 'hls' && typeof chosen.trackIndex === 'number' && hlsInstance) {
-          try {
-            hlsInstance.subtitleTrack = chosen.trackIndex;
-          } catch (e) {}
+        if (chosen) {
+          if (chosen.type === 'native' && typeof chosen.trackIndex === 'number' && videoElement.textTracks) {
+            try {
+              videoElement.textTracks[chosen.trackIndex].mode = 'showing';
+            } catch (e) {}
+          } else if (chosen.type === 'hls' && typeof chosen.trackIndex === 'number' && hlsInstance) {
+            try {
+              hlsInstance.subtitleTrack = chosen.trackIndex;
+            } catch (e) {}
+          }
         }
       }
     };
@@ -333,7 +333,7 @@ export default function VideoPlayer({
       });
     }
 
-    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER (from commit cc9fab1) ──
+    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER ──
     const initMkvDemuxer = async () => {
       if (!isMkv) return;
       try {
@@ -403,7 +403,7 @@ export default function VideoPlayer({
             }
           }
 
-          // Register newly added text tracks in Plyr
+          // Inform Plyr to refresh captions menu so newly added tracks are recognized
           if (playerInstanceRef.current && (playerInstanceRef.current as any).captions) {
             try {
               (playerInstanceRef.current as any).captions.setup();
@@ -427,7 +427,7 @@ export default function VideoPlayer({
           }
         });
 
-        // Fetch streaming chunks directly from MKV file (works universally for any S3 bucket)
+        // Fetch streaming chunks from MKV file
         const res = await fetch(effectiveVideoUrl, {
           signal: abortController.signal,
         });
@@ -513,8 +513,8 @@ export default function VideoPlayer({
           settings: ['captions', 'quality', 'speed', 'loop'],
           captions: {
             active: true,
-            language: 'id',
-            update: false,
+            language: 'auto',
+            update: true,
           },
           seekTime: 10,
           speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
@@ -523,18 +523,9 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
-        player.on('canplay', () => {
-          setIsBuffering(false);
-        });
-
-        player.on('canplaythrough', () => {
-          setIsBuffering(false);
-        });
-
         // Direct Play in Player Dismisses Continue Watching Prompt
         player.on('play', () => {
           setIsPlaying(true);
-          setIsBuffering(false);
           setShowResumePrompt(false);
         });
 
@@ -548,24 +539,16 @@ export default function VideoPlayer({
           setShowResumePrompt(false);
         });
 
-        player.on('seeked', () => {
-          setIsBuffering(false);
-        });
-
         player.on('pause', () => {
           setIsPlaying(false);
-          setIsBuffering(false);
         });
 
         player.on('waiting', () => {
-          if (videoRef.current && videoRef.current.paused) {
-            setIsBuffering(true);
-          }
+          setIsBuffering(true);
         });
 
         // Track and persist playback progress
         player.on('timeupdate', () => {
-          setIsBuffering(false);
           const cur = Math.floor(player.currentTime);
           const dur = Math.floor(player.duration || 0);
 
@@ -595,15 +578,6 @@ export default function VideoPlayer({
           }
         });
 
-        player.on('languagechange', () => {
-          const currentTrackIndex = (player as any).currentTrack;
-          if (videoRef.current && videoRef.current.textTracks) {
-            for (let i = 0; i < videoRef.current.textTracks.length; i++) {
-              videoRef.current.textTracks[i].mode = (i === currentTrackIndex) ? 'showing' : 'hidden';
-            }
-          }
-        });
-
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
         initMkvDemuxer();
@@ -617,7 +591,6 @@ export default function VideoPlayer({
     return () => {
       isCancelled = true;
       abortController.abort();
-      mkvTracksMapRef.current.clear();
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
@@ -863,7 +836,17 @@ export default function VideoPlayer({
             </div>
           )}
 
-
+          {/* ── 4. Buffering Spinner ── */}
+          {isBuffering && isPlaying && !hasError && (
+            <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
+              <div className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-md">
+                <Loader2 size={28} className="text-cyan-400 animate-spin" />
+                <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase">
+                  Memuat...
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* ── 5. Video Canvas Container with Declarative <video> in JSX ── */}
           <div
@@ -896,45 +879,32 @@ export default function VideoPlayer({
                 <p className="text-[11px] sm:text-xs text-slate-400 leading-relaxed mb-3 max-w-xs">
                   Video sedang tidak dapat diputar saat ini. Server streaming mungkin sedang mengalami gangguan jaringan.
                 </p>
-                <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
-                  <a
-                    href={effectiveVideoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all duration-200 hover:scale-105"
-                    style={{
-                      background: 'linear-gradient(135deg, #06b6d4, #7c3aed)',
-                      boxShadow: '0 0 12px rgba(6, 182, 212, 0.4)',
-                    }}
-                  >
-                    <span>Buka Video Langsung</span>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setReported(true)}
-                    disabled={reported}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 hover:scale-105"
-                    style={{
-                      background: reported
-                        ? 'rgba(34, 197, 94, 0.2)'
-                        : 'rgba(255, 255, 255, 0.08)',
-                      border: reported ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
-                      color: reported ? '#4ade80' : 'white',
-                    }}
-                  >
-                    {reported ? (
-                      <>
-                        <CheckCircle2 size={14} />
-                        <span>Laporan Terkirim</span>
-                      </>
-                    ) : (
-                      <>
-                        <Flag size={14} />
-                        <span>Lapor Masalah</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setReported(true)}
+                  disabled={reported}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 hover:scale-105"
+                  style={{
+                    background: reported
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : 'linear-gradient(135deg, #06b6d4, #7c3aed)',
+                    border: reported ? '1px solid rgba(34, 197, 94, 0.5)' : 'none',
+                    color: reported ? '#4ade80' : 'white',
+                    boxShadow: reported ? 'none' : '0 0 15px rgba(6, 182, 212, 0.4)',
+                  }}
+                >
+                  {reported ? (
+                    <>
+                      <CheckCircle2 size={14} />
+                      <span>Laporan Terkirim</span>
+                    </>
+                  ) : (
+                    <>
+                      <Flag size={14} />
+                      <span>Lapor Masalah</span>
+                    </>
+                  )}
+                </button>
               </div>
             ) : youtubeId ? (
               <iframe
@@ -953,27 +923,26 @@ export default function VideoPlayer({
                 className="w-full h-full border-0"
               />
             ) : (
-              /* Declarative <video> tag in JSX */
+              /* Declarative <video> tag in JSX isolated with key */
               <div
-                className="w-full h-full flex items-center justify-center plyr-custom-wrapper bg-black overflow-hidden"
+                key={effectiveVideoUrl}
+                className="w-full h-full flex items-center justify-center plyr-custom-wrapper"
               >
                 <video
                   ref={videoRef}
-                  src={effectiveVideoUrl}
-                  className="plyr-react w-full h-full object-cover"
+                  src={isMounted ? effectiveVideoUrl : undefined}
+                  className="plyr-react plyr w-full h-full"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
                 >
-                  {isHls ? (
-                    <source src={effectiveVideoUrl} type="application/x-mpegURL" />
-                  ) : isMkv ? (
-                    <source src={effectiveVideoUrl} type="video/x-matroska" />
-                  ) : (
-                    <source src={effectiveVideoUrl} type="video/mp4" />
-                  )}
+                  <source
+                    src={isMounted ? effectiveVideoUrl : ''}
+                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
+                  />
+                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
-                  {!isMkv &&
+                  {isMounted &&
                     extSubs.map((sub, idx) => (
                       <track
                         key={`${sub.src}-${idx}`}

@@ -601,7 +601,7 @@ input:focus-visible {
 /* ===== PLYR CUSTOM THEME & RESPONSIVE CONTROLS ===== */
 .plyr-custom-wrapper {
   --plyr-color-main: #06b6d4;
-  --plyr-video-background: #000000;
+  --plyr-video-background: #050816;
   --plyr-video-control-color: #f1f5f9;
   --plyr-video-control-color-hover: #ffffff;
   --plyr-video-control-background-hover: rgba(6, 182, 212, 0.25);
@@ -622,37 +622,12 @@ input:focus-visible {
   --plyr-tooltip-color: #f1f5f9;
   --plyr-tooltip-radius: 6px;
   --plyr-tooltip-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
-  background: #000000 !important;
-  background-color: #000000 !important;
 }
 
-/* Full fit video container: strictly fill 100% of player, locking out background leak */
-.plyr-custom-wrapper .plyr,
-.plyr-custom-wrapper .plyr--video,
-.plyr-custom-wrapper .plyr__video-wrapper {
-  border-radius: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
-  min-height: 100% !important;
-  background: #000000 !important;
-  background-color: #000000 !important;
-  overflow: hidden !important;
-}
-
-/* Full fit video: fill 100% of player container, automatically eliminating letterbox black bars */
-.plyr-custom-wrapper video,
-.plyr-custom-wrapper .plyr video,
-.plyr-custom-wrapper .plyr__video-wrapper video {
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 100% !important;
-  min-height: 100% !important;
-  object-fit: cover !important;
-  object-position: center !important;
-  background: #000000 !important;
-  background-color: #000000 !important;
+.plyr-custom-wrapper .plyr--video {
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* Fix Big Center Play Button: Never jump or shift position on hover/click */
@@ -839,138 +814,66 @@ input:focus-visible {
   }
 }
 
-/* Center Play Button: ALWAYS guaranteed visible when video is stopped or paused (fixes disappearing button on episode switch) */
-.plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__control--overlaid {
-  display: flex !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-  z-index: 35 !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-}
-
-.plyr-custom-wrapper .plyr.plyr--playing .plyr__control--overlaid {
-  display: none !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-/* Ensure controls play/pause button is always visible and accessible */
-.plyr-custom-wrapper .plyr__controls [data-plyr='play'] {
-  display: inline-flex !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-}
-
-/* =========================================================================
-   TRANSPARENT & HIGH-DEFINITION SUBTITLE RENDERING (NO BLACK BOX BACKGROUND)
-   ========================================================================= */
-
+/* Clean & Simple Subtitle Cue Rendering (Transparent Background, High Readability Outline, Lifted Position) */
 .plyr-custom-wrapper .plyr__captions {
-  display: block !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  bottom: 14px !important;
-  left: 0 !important;
-  right: 0 !important;
-  padding: 0 16px !important;
-  transition: transform 0.25s ease-in-out !important;
-  pointer-events: none !important;
-  z-index: 10 !important;
-  text-align: center !important;
-  background: transparent !important;
-  background-color: transparent !important;
+  bottom: 35px !important;
+  padding-bottom: 0 !important;
+  transition: transform 0.3s ease-in-out !important;
 }
 
-/* When controls are active / shown: lift gently just above the control bar */
+/* When controls are active/shown */
 .plyr-custom-wrapper .plyr:not(.plyr--hide-controls) .plyr__controls:not(:empty) ~ .plyr__captions {
-  transform: translateY(-44px) !important;
+  transform: translateY(-52px) !important;
 }
 
-/* When controls are hidden (active playback): sit near bottom edge in standard cinema position */
+/* When controls are hidden (active playback) */
 .plyr-custom-wrapper .plyr.plyr--hide-controls .plyr__captions {
-  transform: translateY(0) !important;
+  transform: translateY(-12px) !important;
 }
 
-/* Base typography for captions and cues: 100% TRANSPARENT background, NO black box */
 .plyr-custom-wrapper video::cue,
 .plyr-custom-wrapper .plyr__captions,
 .plyr-custom-wrapper .plyr__caption {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
-  font-size: 1.25rem !important;
-  font-weight: 700 !important;
+  font-family: inherit;
+  font-size: 1.125rem !important;
+  font-weight: 600 !important;
   line-height: 1.35 !important;
-  letter-spacing: 0.02em !important;
   color: #ffffff !important;
   background: transparent !important;
   background-color: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  box-shadow: none !important;
-  border: none !important;
   padding: 0 !important;
-  margin: 0 !important;
   border-radius: 0 !important;
-  -webkit-font-smoothing: antialiased !important;
-  -moz-osx-font-smoothing: grayscale !important;
-  text-rendering: optimizeLegibility !important;
-}
-
-/* Crystal-clear readable text without any black rectangle background */
-.plyr-custom-wrapper .plyr__caption {
-  display: inline !important;
-  white-space: pre-wrap !important;
+  border: none !important;
+  box-shadow: none !important;
   text-shadow: 
-    0 1px 2px rgba(0, 0, 0, 1),
-    0 2px 4px rgba(0, 0, 0, 0.95),
-    0 0 8px rgba(0, 0, 0, 0.9),
-    -1px -1px 0 rgba(0, 0, 0, 0.95),
-     1px -1px 0 rgba(0, 0, 0, 0.95),
-    -1px  1px 0 rgba(0, 0, 0, 0.95),
-     1px  1px 0 rgba(0, 0, 0, 0.95) !important;
-}
-
-.plyr-custom-wrapper video::cue {
-  background: transparent !important;
-  background-color: transparent !important;
-  color: #ffffff !important;
-  font-size: 1.25rem !important;
-  font-weight: 700 !important;
-  line-height: 1.35 !important;
-  text-shadow: 
-    0 1px 2px rgba(0, 0, 0, 1),
-    0 2px 4px rgba(0, 0, 0, 0.95),
-    0 0 8px rgba(0, 0, 0, 0.9),
-    -1px -1px 0 rgba(0, 0, 0, 0.95),
-     1px -1px 0 rgba(0, 0, 0, 0.95),
-    -1px  1px 0 rgba(0, 0, 0, 0.95),
-     1px  1px 0 rgba(0, 0, 0, 0.95) !important;
+    -1.5px -1.5px 0 #000,  
+     1.5px -1.5px 0 #000,
+    -1.5px  1.5px 0 #000,
+     1.5px  1.5px 0 #000,
+     0 2px 5px rgba(0, 0, 0, 0.95),
+     0 0 12px rgba(0, 0, 0, 0.85) !important;
+  letter-spacing: 0.015em !important;
 }
 
 @media (max-width: 640px) {
   .plyr-custom-wrapper .plyr__captions {
-    bottom: 8px !important;
-    padding: 0 10px !important;
+    bottom: 26px !important;
   }
 
   .plyr-custom-wrapper .plyr:not(.plyr--hide-controls) .plyr__controls:not(:empty) ~ .plyr__captions {
-    transform: translateY(-38px) !important;
+    transform: translateY(-42px) !important;
   }
 
   .plyr-custom-wrapper .plyr.plyr--hide-controls .plyr__captions {
-    transform: translateY(0) !important;
+    transform: translateY(-8px) !important;
   }
 
   .plyr-custom-wrapper video::cue,
   .plyr-custom-wrapper .plyr__captions,
   .plyr-custom-wrapper .plyr__caption {
-    font-size: 0.95rem !important;
-    line-height: 1.3 !important;
-    padding: 0 !important;
+    font-size: 0.875rem !important;
   }
 }
 
