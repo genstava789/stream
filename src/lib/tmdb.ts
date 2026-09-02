@@ -138,7 +138,7 @@ export async function getTMDBBasicMeta(type: 'movie' | 'tv', id: number): Promis
 export async function getMovieDetails(id: number): Promise<MovieDetail | null> {
   try {
     const movie = await fetchTMDB<MovieDetail>(`/movie/${id}`, {
-      append_to_response: 'videos,credits,similar,images',
+      append_to_response: 'videos,credits,similar,images,recommendations',
       include_image_language: 'en,id,null',
       language: 'en-US',
     });
@@ -152,7 +152,7 @@ export async function getMovieDetails(id: number): Promise<MovieDetail | null> {
 export async function getTVShowDetails(id: number): Promise<TVShowDetail | null> {
   try {
     const show = await fetchTMDB<TVShowDetail>(`/tv/${id}`, {
-      append_to_response: 'videos,credits,similar,images',
+      append_to_response: 'videos,credits,similar,images,recommendations',
       include_image_language: 'en,id,null',
       language: 'en-US',
     });

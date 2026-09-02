@@ -177,7 +177,48 @@ export default async function TVShowPage({ params }: PageProps) {
   const embedUrl = getServerAbsoluteUrl(`/embed/tv/${params.slug.join('/')}`);
 
   const cast = data.credits?.cast?.slice(0, 14) || [];
-  const similarShows = data.similar?.results?.slice(0, 14) || [];
+  
+  // 1. Combine TMDB recommendations and similar results for maximum coverage
+  const rawTVCandidates = [
+    ...(data.recommendations?.results || []),
+    ...(data.similar?.results || []),
+  ];
+
+  // 2. Extract franchise root keyword for detecting sequels, prequels, and spin-offs
+  const currentShowName = (data.name || '').trim();
+  const showBeforeColon = currentShowName.split(':')[0].split(' - ')[0].trim();
+  const tvFranchiseRoot = showBeforeColon.replace(/\s+(?:[0-9]+|[IVXLCDMivxlcdm]+|\bpart\b.*|\bchapter\b.*|\bseason\b.*)$/i, '').toLowerCase().trim();
+
+  // 3. Deduplicate candidates and exclude the current TV show itself
+  const seenTVIds = new Set<number>([data.id]);
+  const uniqueTVCandidates: typeof rawTVCandidates = [];
+  for (const item of rawTVCandidates) {
+    if (item && item.id && !seenTVIds.has(item.id)) {
+      seenTVIds.add(item.id);
+      uniqueTVCandidates.push(item);
+    }
+  }
+
+  // 4. Sort: prioritize prequel, sequel, and franchise titles first (ordered chronologically)
+  const similarShows = uniqueTVCandidates.sort((a, b) => {
+    if (!tvFranchiseRoot || tvFranchiseRoot.length < 3) return 0;
+    const aName = (a.name || '').toLowerCase();
+    const bName = (b.name || '').toLowerCase();
+    const aMatches = aName.includes(tvFranchiseRoot);
+    const bMatches = bName.includes(tvFranchiseRoot);
+
+    if (aMatches && !bMatches) return -1;
+    if (!aMatches && bMatches) return 1;
+
+    // If both match franchise (e.g. sequels/prequels/spin-offs), order chronologically
+    if (aMatches && bMatches) {
+      const relA = new Date(a.first_air_date || 0).getTime();
+      const relB = new Date(b.first_air_date || 0).getTime();
+      if (relA && relB && relA !== relB) return relA - relB;
+    }
+
+    return 0;
+  }).slice(0, 14);
   const year = data.first_air_date ? new Date(data.first_air_date).getFullYear() : '';
   const runtime = data.episode_run_time?.[0] ? `${data.episode_run_time[0]}m / ep` : null;
 

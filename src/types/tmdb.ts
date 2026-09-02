@@ -106,6 +106,12 @@ export interface MovieDetail extends Movie {
     total_pages: number;
     total_results: number;
   };
+  recommendations?: {
+    results: Movie[];
+    page: number;
+    total_pages: number;
+    total_results: number;
+  };
 }
 
 export interface TMDBResponse<T> {
@@ -170,6 +176,12 @@ export interface TVShowDetail extends TVShow {
     crew: Crew[];
   };
   similar: {
+    results: TVShow[];
+    page: number;
+    total_pages: number;
+    total_results: number;
+  };
+  recommendations?: {
     results: TVShow[];
     page: number;
     total_pages: number;

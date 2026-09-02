@@ -166,14 +166,45 @@ export default async function MovieDetailPage({ params }: PageProps) {
   const siteUrl = getServerBaseUrl();
   const director = movie.credits?.crew?.find((c) => c.job === 'Director');
   const cast = (movie.credits?.cast || []).slice(0, 10);
-  const rawSimilar = movie.similar?.results || [];
-  const movieRootTitle = (movie.title || '').split(':')[0].split(' - ')[0].replace(/\s+\d+.*$/, '').toLowerCase().trim();
-  const similarMovies = [...rawSimilar].sort((a, b) => {
-    if (!movieRootTitle || movieRootTitle.length < 3) return 0;
-    const aMatches = (a.title || '').toLowerCase().includes(movieRootTitle);
-    const bMatches = (b.title || '').toLowerCase().includes(movieRootTitle);
+  // 1. Combine TMDB recommendations and similar results for maximum coverage
+  const rawCandidates = [
+    ...(movie.recommendations?.results || []),
+    ...(movie.similar?.results || []),
+  ];
+
+  // 2. Extract franchise root keyword for detecting sequels and prequels
+  const currentTitle = (movie.title || '').trim();
+  const titleBeforeColon = currentTitle.split(':')[0].split(' - ')[0].trim();
+  const franchiseRoot = titleBeforeColon.replace(/\s+(?:[0-9]+|[IVXLCDMivxlcdm]+|\bpart\b.*|\bchapter\b.*)$/i, '').toLowerCase().trim();
+
+  // 3. Deduplicate candidates and exclude the current movie itself
+  const seenIds = new Set<number>([movie.id]);
+  const uniqueCandidates: typeof rawCandidates = [];
+  for (const item of rawCandidates) {
+    if (item && item.id && !seenIds.has(item.id)) {
+      seenIds.add(item.id);
+      uniqueCandidates.push(item);
+    }
+  }
+
+  // 4. Sort: prioritize prequel, sequel, and franchise titles first (ordered chronologically)
+  const similarMovies = uniqueCandidates.sort((a, b) => {
+    if (!franchiseRoot || franchiseRoot.length < 3) return 0;
+    const aTitle = (a.title || '').toLowerCase();
+    const bTitle = (b.title || '').toLowerCase();
+    const aMatches = aTitle.includes(franchiseRoot);
+    const bMatches = bTitle.includes(franchiseRoot);
+
     if (aMatches && !bMatches) return -1;
     if (!aMatches && bMatches) return 1;
+
+    // If both match franchise (e.g. sequels/prequels), order chronologically
+    if (aMatches && bMatches) {
+      const relA = new Date(a.release_date || 0).getTime();
+      const relB = new Date(b.release_date || 0).getTime();
+      if (relA && relB && relA !== relB) return relA - relB;
+    }
+
     return 0;
   }).slice(0, 14);
   const runtime = movie.runtime
