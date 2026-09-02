@@ -1,5 +1,5 @@
 // Auto-generated Embedded Static Registry for Cloudflare Workers & Edge Environments
-// Generated on 2026-09-02T01:59:53.876Z
+// Generated on 2026-09-02T02:22:31.252Z
 
 export const STATIC_MOVIE_FILES: Record<string, string> = {
   "video/a-minecraft-movie.md": "---\r\ntmdb_id: 950387\r\nvideourl: >-\r\n  https://huggingface.co/buckets/nexus33rd/cloud/resolve/BLEACH.Thousand.Year.Blood.War.S01E45.1080p.NF.WEB-DL.AAC2.0.H.264-VARYG.mkv\r\ntitle: A Minecraft Movie\r\ndeskripsi: >-\r\n  Four misfits find themselves struggling with ordinary problems when they are\r\n  suddenly pulled through a mysterious portal into the Overworld: a bizarre,\r\n  cubic wonderland that thrives on imagination. To get back home, they'll have\r\n  to master this world while embarking on a magical quest with an unexpected,\r\n  expert crafter, Steve.\r\nimage_url: 'https://image.tmdb.org/t/p/w500/yFHHfHcUgGAxziP1C3lLt0q2T4s.jpg'\r\nrating: 6.2\r\ntrending: true\r\nlanguage: EN\r\n---\r\n\r\n",

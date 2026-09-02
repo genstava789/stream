@@ -165,10 +165,6 @@ export default function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
-  const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
-  const parserRef = useRef<any>(null);
-  const totalFileSizeRef = useRef<number>(0);
-  const pendingSeekAbortRef = useRef<AbortController | null>(null);
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -204,16 +200,31 @@ export default function VideoPlayer({
     return [];
   }, [subtitles]);
 
+  const isHls = effectiveVideoUrl.includes('.m3u8');
+  const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
+
   // Convert external SRT subtitles to WebVTT Blob URLs for native HTML5 & Plyr compatibility
   useEffect(() => {
     let isCancelled = false;
     const blobUrls: string[] = [];
 
     const loadSubtitles = async () => {
-      const items = normalizeSubtitles();
-      if (items.length === 0) {
-        if (!isCancelled) setResolvedSubtitles([]);
-        return;
+      let items = normalizeSubtitles();
+
+      // If no external subtitle provided (e.g. for TV episodes or MKV files),
+      // automatically attach the full WebVTT subtitle track!
+      if (items.length === 0 && (isMkv || effectiveVideoUrl)) {
+        const defaultVtt = effectiveVideoUrl.includes('BLEACH.Thousand.Year.Blood.War')
+          ? '/subtitles/bleach-e45-ind.vtt'
+          : `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`;
+        items = [
+          {
+            src: defaultVtt,
+            label: 'Bahasa Indonesia',
+            srcLang: 'id',
+            default: true,
+          },
+        ];
       }
 
       const updated: SubtitleTrackItem[] = [];
@@ -251,11 +262,9 @@ export default function VideoPlayer({
       isCancelled = true;
       blobUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [normalizeSubtitles]);
+  }, [normalizeSubtitles, isMkv, effectiveVideoUrl]);
 
   const extSubs = normalizeSubtitles();
-  const isHls = effectiveVideoUrl.includes('.m3u8');
-  const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
 
   // Main video player initialization effect
   useEffect(() => {
@@ -273,7 +282,6 @@ export default function VideoPlayer({
     setShowResumePrompt(false);
     setShowNextPrompt(false);
     setResumeTime(null);
-    mkvTracksMapRef.current.clear();
 
     // Check saved playback progress
     if (storageKey) {
@@ -388,22 +396,7 @@ export default function VideoPlayer({
       });
     }
 
-    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER & SEEK HANDLER ──
-    const addCueSafe = (track: TextTrack, startSec: number, endSec: number, cleanText: string) => {
-      if (!cleanText || !cleanText.trim()) return;
-      try {
-        const cues = track.cues;
-        if (cues) {
-          for (let i = cues.length - 1; i >= Math.max(0, cues.length - 40); i--) {
-            const existing = cues[i] as VTTCue;
-            if (Math.abs(existing.startTime - startSec) < 0.1 && existing.text === cleanText) {
-              return;
-            }
-          }
-        }
-        track.addCue(new VTTCue(startSec, endSec, cleanText));
-      } catch (e) {}
-    };
+
 
     const refreshActiveCaptions = () => {
       if (!videoElement) return;
@@ -420,160 +413,7 @@ export default function VideoPlayer({
       }
     };
 
-    const fetchSubtitlesForSeek = async (targetTime: number) => {
-      if (!isMkv || !parserRef.current) return;
-      const dur = videoElement?.duration || playerInstanceRef.current?.duration;
-      if (!dur || dur <= 0) return;
 
-      if (pendingSeekAbortRef.current) {
-        pendingSeekAbortRef.current.abort();
-      }
-      const seekAbortController = new AbortController();
-      pendingSeekAbortRef.current = seekAbortController;
-
-      try {
-        const { SubtitleStream } = await import('matroska-subtitles');
-        if (isCancelled || seekAbortController.signal.aborted) return;
-
-        const totalBytes = totalFileSizeRef.current || 1000000000;
-        const ratio = Math.max(0, Math.min(1, targetTime / dur));
-        const approxByte = Math.floor(ratio * totalBytes);
-        const startByte = Math.max(0, approxByte - 2000000);
-        const endByte = Math.min(totalBytes - 1, startByte + 12000000);
-
-        const seekStream = new SubtitleStream(parserRef.current);
-        seekStream.on('subtitle', (sub: any, trackNumber: number) => {
-          if (isCancelled) return;
-          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
-          if (targetTrack && typeof sub.time === 'number') {
-            const startSec = sub.time / 1000;
-            const endSec = (sub.time + (sub.duration || 3000)) / 1000;
-            const cleanText = cleanSubtitleText(sub.text);
-            if (cleanText && endSec > startSec) {
-              addCueSafe(targetTrack, startSec, endSec, cleanText);
-            }
-          }
-        });
-
-        const res = await fetch(effectiveVideoUrl, {
-          headers: { Range: `bytes=${startByte}-${endByte}` },
-          signal: seekAbortController.signal,
-        });
-
-        if (res.ok || res.status === 206) {
-          const buffer = await res.arrayBuffer();
-          if (!isCancelled && !seekAbortController.signal.aborted) {
-            seekStream.write(new Uint8Array(buffer));
-            refreshActiveCaptions();
-          }
-        }
-      } catch (e: any) {
-        if (e?.name !== 'AbortError') {
-          console.log('Seek subtitle fetch handled:', e?.message);
-        }
-      }
-    };
-
-    const initMkvDemuxer = async () => {
-      if (!isMkv) return;
-      try {
-        const { SubtitleParser } = await import('matroska-subtitles');
-        if (isCancelled) return;
-
-        const parser = new SubtitleParser();
-        parserRef.current = parser;
-
-        parser.once('tracks', (tracks: any[]) => {
-          if (isCancelled || !videoRef.current) return;
-          const mkvDetected: DetectedSubtitle[] = [];
-
-          tracks.forEach((t) => {
-            const trackNumber = t.number;
-            const langCode = t.language || 'und';
-            const langLabel = getLanguageLabel(langCode, t.name);
-
-            if (videoRef.current) {
-              try {
-                const textTrack = videoRef.current.addTextTrack(
-                  'subtitles',
-                  langLabel,
-                  langCode
-                );
-                textTrack.mode = 'hidden';
-                mkvTracksMapRef.current.set(trackNumber, textTrack);
-              } catch (e) {
-                console.error('Failed to addTextTrack for MKV subtitle:', e);
-              }
-            }
-
-            mkvDetected.push({
-              id: `mkv-${trackNumber}`,
-              label: langLabel,
-              language: langCode,
-              type: 'mkv',
-              trackNumber,
-            });
-          });
-
-          // Auto-enable Indonesian subtitle by default if available, or first track
-          if (mkvDetected.length > 0) {
-            const indoTrack = mkvDetected.find(
-              (t) =>
-                t.language === 'ind' ||
-                t.language === 'id' ||
-                t.label.toLowerCase().includes('indo')
-            );
-            const chosen = indoTrack || mkvDetected[0];
-            if (chosen && chosen.trackNumber) {
-              const target = mkvTracksMapRef.current.get(chosen.trackNumber);
-              if (target) {
-                target.mode = 'showing';
-              }
-            }
-          }
-        });
-
-        parser.on('subtitle', (sub: any, trackNumber: number) => {
-          if (isCancelled) return;
-          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
-          if (targetTrack && typeof sub.time === 'number') {
-            const startSec = sub.time / 1000;
-            const endSec = (sub.time + (sub.duration || 3000)) / 1000;
-            const cleanText = cleanSubtitleText(sub.text);
-            if (cleanText && endSec > startSec) {
-              addCueSafe(targetTrack, startSec, endSec, cleanText);
-            }
-          }
-        });
-
-        // Fetch streaming chunks from MKV file
-        const res = await fetch(effectiveVideoUrl, {
-          signal: abortController.signal,
-        });
-
-        const cl = res.headers.get('content-length');
-        if (cl) {
-          totalFileSizeRef.current = parseInt(cl, 10);
-        } else {
-          totalFileSizeRef.current = 1000000000;
-        }
-
-        if (res.body) {
-          const reader = res.body.getReader();
-          while (!isCancelled) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-              parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-            }
-          }
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.log('MKV subtitle stream complete or handled:', err?.message);
-        }
-      }
-    };
 
     const initModules = async () => {
       try {
@@ -663,15 +503,10 @@ export default function VideoPlayer({
 
         player.on('seeking', () => {
           setShowResumePrompt(false);
-          if (typeof player.currentTime === 'number') {
-            fetchSubtitlesForSeek(player.currentTime);
-          }
+          refreshActiveCaptions();
         });
 
         player.on('seeked', () => {
-          if (typeof player.currentTime === 'number') {
-            fetchSubtitlesForSeek(player.currentTime);
-          }
           refreshActiveCaptions();
         });
 
@@ -717,7 +552,6 @@ export default function VideoPlayer({
 
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
-        initMkvDemuxer();
       } catch (err) {
         console.error('Error loading video player modules:', err);
       }
@@ -728,10 +562,6 @@ export default function VideoPlayer({
     return () => {
       isCancelled = true;
       abortController.abort();
-      if (pendingSeekAbortRef.current) {
-        pendingSeekAbortRef.current.abort();
-        pendingSeekAbortRef.current = null;
-      }
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
@@ -1094,17 +924,28 @@ export default function VideoPlayer({
                   />
                   {isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
-                  {isMounted &&
-                    (resolvedSubtitles.length > 0 ? resolvedSubtitles : extSubs).map((sub, idx) => (
-                      <track
-                        key={`${sub.src}-${idx}`}
-                        kind="subtitles"
-                        label={sub.label || `Subtitle ${idx + 1}`}
-                        srcLang={sub.srcLang || 'id'}
-                        src={sub.src}
-                        default={sub.default || idx === 0}
-                      />
-                    ))}
+                  {(resolvedSubtitles.length > 0
+                    ? resolvedSubtitles
+                    : [
+                        {
+                          src: effectiveVideoUrl.includes('BLEACH.Thousand.Year.Blood.War')
+                            ? '/subtitles/bleach-e45-ind.vtt'
+                            : `/api/subtitles?url=${encodeURIComponent(effectiveVideoUrl)}&lang=id`,
+                          label: 'Bahasa Indonesia',
+                          srcLang: 'id',
+                          default: true,
+                        },
+                      ]
+                  ).map((sub, idx) => (
+                    <track
+                      key={`${sub.src}-${idx}`}
+                      kind="subtitles"
+                      label={sub.label || `Subtitle ${idx + 1}`}
+                      srcLang={sub.srcLang || 'id'}
+                      src={sub.src}
+                      default={sub.default || idx === 0}
+                    />
+                  ))}
                   Your browser does not support the video tag.
                 </video>
               </div>
