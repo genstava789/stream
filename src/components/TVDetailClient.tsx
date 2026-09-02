@@ -333,7 +333,11 @@ export default function TVDetailClient({
 
         {/* Episode Title */}
         <h1 className="text-xl sm:text-2xl lg:text-3xl font-black leading-tight mb-2 tracking-tight text-white">
-          {activeEpisode ? `${activeEpisode.episodeLabel}: ${activeEpisode.title}` : showTitle}
+          {activeEpisode
+            ? activeEpisode.title?.toLowerCase().startsWith(activeEpisode.episodeLabel.toLowerCase())
+              ? activeEpisode.title
+              : `${activeEpisode.episodeLabel}: ${activeEpisode.title}`
+            : showTitle}
         </h1>
 
         {/* Episode Metadata Badges Row */}
@@ -348,7 +352,7 @@ export default function TVDetailClient({
           >
             HD
           </span>
-          {activeEpisode?.rating && (
+          {Boolean(activeEpisode?.rating && Number(activeEpisode.rating) > 0) && (
             <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
               ★ {activeEpisode.rating}
             </span>

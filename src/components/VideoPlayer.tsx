@@ -410,11 +410,15 @@ export default function VideoPlayer({
 
         if (res.body) {
           const reader = res.body.getReader();
+          let bytesRead = 0;
+          const MAX_SUB_BYTES = 5 * 1024 * 1024; // 5MB is sufficient to extract MKV subtitle track metadata
           while (!isCancelled) {
             const { done, value } = await reader.read();
             if (done) break;
             if (value) {
+              bytesRead += value.byteLength;
               parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+              if (bytesRead >= MAX_SUB_BYTES) break;
             }
           }
         }
@@ -853,32 +857,45 @@ export default function VideoPlayer({
                 <p className="text-[11px] sm:text-xs text-slate-400 leading-relaxed mb-3 max-w-xs">
                   Video sedang tidak dapat diputar saat ini. Server streaming mungkin sedang mengalami gangguan jaringan.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setReported(true)}
-                  disabled={reported}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 hover:scale-105"
-                  style={{
-                    background: reported
-                      ? 'rgba(34, 197, 94, 0.2)'
-                      : 'linear-gradient(135deg, #06b6d4, #7c3aed)',
-                    border: reported ? '1px solid rgba(34, 197, 94, 0.5)' : 'none',
-                    color: reported ? '#4ade80' : 'white',
-                    boxShadow: reported ? 'none' : '0 0 15px rgba(6, 182, 212, 0.4)',
-                  }}
-                >
-                  {reported ? (
-                    <>
-                      <CheckCircle2 size={14} />
-                      <span>Laporan Terkirim</span>
-                    </>
-                  ) : (
-                    <>
-                      <Flag size={14} />
-                      <span>Lapor Masalah</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                  <a
+                    href={effectiveVideoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all duration-200 hover:scale-105"
+                    style={{
+                      background: 'linear-gradient(135deg, #06b6d4, #7c3aed)',
+                      boxShadow: '0 0 12px rgba(6, 182, 212, 0.4)',
+                    }}
+                  >
+                    <span>Buka Video Langsung</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setReported(true)}
+                    disabled={reported}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 hover:scale-105"
+                    style={{
+                      background: reported
+                        ? 'rgba(34, 197, 94, 0.2)'
+                        : 'rgba(255, 255, 255, 0.08)',
+                      border: reported ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                      color: reported ? '#4ade80' : 'white',
+                    }}
+                  >
+                    {reported ? (
+                      <>
+                        <CheckCircle2 size={14} />
+                        <span>Laporan Terkirim</span>
+                      </>
+                    ) : (
+                      <>
+                        <Flag size={14} />
+                        <span>Lapor Masalah</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             ) : youtubeId ? (
               <iframe
@@ -904,17 +921,29 @@ export default function VideoPlayer({
               >
                 <video
                   ref={videoRef}
-                  src={isMounted ? effectiveVideoUrl : undefined}
                   className="plyr-react plyr w-full h-full"
                   playsInline
-                  crossOrigin="anonymous"
+                  preload="metadata"
                   poster={poster}
                 >
-                  <source
-                    src={isMounted ? effectiveVideoUrl : ''}
-                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
-                  />
-                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
+                  {isMounted && (
+                    <source
+                      src={effectiveVideoUrl}
+                      type={
+                        isHls
+                          ? 'application/x-mpegURL'
+                          : isMkv
+                          ? 'video/x-matroska'
+                          : 'video/mp4'
+                      }
+                    />
+                  )}
+                  {isMounted && isMkv && (
+                    <source src={effectiveVideoUrl} type="video/webm" />
+                  )}
+                  {isMounted && isMkv && (
+                    <source src={effectiveVideoUrl} type="video/mp4" />
+                  )}
 
                   {isMounted &&
                     extSubs.map((sub, idx) => (

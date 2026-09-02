@@ -547,12 +547,15 @@ export async function getCustomTVShowBySlug(showSlugOrTmdbId: string | number): 
 
             const baseName = file.replace(/\.(md|markdown)$/i, '');
             const epLabel = seasonNum !== null ? `S${seasonNum}:E${epNum}` : `EP ${epNum < 10 ? '0' + epNum : epNum}`;
-            const title = frontmatter.title?.trim() || `Episode ${epNum}`;
+            const rawTitle = frontmatter.title?.trim() || '';
+            const isCodeTitle = !rawTitle || new RegExp(`^(?:e|ep)?${epNum}$`, 'i').test(rawTitle) || rawTitle.toLowerCase() === baseName.toLowerCase();
+            const title = isCodeTitle ? `Episode ${epNum}` : rawTitle;
             const videoUrl = cleanVideoUrl(frontmatter.videourl || frontmatter.video_url);
             const imageUrl = frontmatter.image_url || null;
             const subtitles = frontmatter.subtitles || frontmatter.subtitle || frontmatter.subtitle_url || frontmatter.sub_url || frontmatter.caption_url || null;
             const overview = (frontmatter.deskripsi || frontmatter.description || '').trim();
-            const rating = frontmatter.rating !== undefined && frontmatter.rating !== null ? Number(frontmatter.rating) : null;
+            const rawRating = frontmatter.rating !== undefined && frontmatter.rating !== null ? Number(frontmatter.rating) : null;
+            const rating = rawRating && !isNaN(rawRating) && rawRating > 0 ? rawRating : null;
             const duration = frontmatter.duration || null;
             const contentHtml = content && content.trim() ? await marked.parse(content) : null;
             const urlPath = `/tv/${matchedDir}/${sDir.name}/${baseName}`;
@@ -632,12 +635,15 @@ export async function getCustomTVShowBySlug(showSlugOrTmdbId: string | number): 
 
           const baseName = file.replace(/\.(md|markdown)$/i, '');
           const epLabel = `EP ${epNum < 10 ? '0' + epNum : epNum}`;
-          const title = frontmatter.title?.trim() || `Episode ${epNum}`;
+          const rawTitle = frontmatter.title?.trim() || '';
+          const isCodeTitle = !rawTitle || new RegExp(`^(?:e|ep)?${epNum}$`, 'i').test(rawTitle) || rawTitle.toLowerCase() === baseName.toLowerCase();
+          const title = isCodeTitle ? `Episode ${epNum}` : rawTitle;
           const videoUrl = cleanVideoUrl(frontmatter.videourl || frontmatter.video_url);
           const imageUrl = frontmatter.image_url || null;
           const subtitles = frontmatter.subtitles || frontmatter.subtitle || frontmatter.subtitle_url || frontmatter.sub_url || frontmatter.caption_url || null;
           const overview = (frontmatter.deskripsi || frontmatter.description || '').trim();
-          const rating = frontmatter.rating !== undefined && frontmatter.rating !== null ? Number(frontmatter.rating) : null;
+          const rawRating = frontmatter.rating !== undefined && frontmatter.rating !== null ? Number(frontmatter.rating) : null;
+          const rating = rawRating && !isNaN(rawRating) && rawRating > 0 ? rawRating : null;
           const duration = frontmatter.duration || null;
           const contentHtml = content && content.trim() ? await marked.parse(content) : null;
           const urlPath = `/tv/${matchedDir}/${baseName}`;

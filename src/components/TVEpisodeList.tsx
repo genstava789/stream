@@ -108,7 +108,7 @@ function EpisodeRowItem({
           >
             {ep.episodeLabel}
           </span>
-          {ep.rating && (
+          {Boolean(ep.rating && Number(ep.rating) > 0) && (
             <span className="text-[10px] font-bold text-amber-400 flex items-center gap-0.5">
               ★ {ep.rating}
             </span>
