@@ -17,9 +17,11 @@ import {
   ChevronDown,
   ChevronRight,
   Lock,
+  Cloud,
 } from 'lucide-react';
 import { DraftSeason, TMDBPreviewData, MovieItem, TVShowItem } from '../types';
 import { BackdropPicker } from './BackdropPicker';
+import { S3BrowserModal } from './S3BrowserModal';
 import { cleanVideoUrl, isValidVideoUrl, extractTmdbIdAndType } from '@/lib/urls';
 
 interface TMDBLiveSearchResult {
@@ -108,6 +110,49 @@ export const CreateModal: React.FC<CreateModalProps> = ({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [expandedSeasons, setExpandedSeasons] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  // S3 Storage Browser State
+  const [s3BrowserOpen, setS3BrowserOpen] = useState(false);
+  const [s3Target, setS3Target] = useState<{
+    type: 'mainVideo' | 'subtitles' | 'episode';
+    seasonId?: string;
+    episodeId?: string;
+  }>({ type: 'mainVideo' });
+  const [s3FilterMode, setS3FilterMode] = useState<'all' | 'video' | 'subtitle'>('video');
+
+  const openS3Browser = (
+    mode: 'video' | 'subtitle',
+    target: { type: 'mainVideo' | 'subtitles' | 'episode'; seasonId?: string; episodeId?: string }
+  ) => {
+    setS3FilterMode(mode);
+    setS3Target(target);
+    setS3BrowserOpen(true);
+  };
+
+  const handleS3Select = (url: string) => {
+    if (s3Target.type === 'mainVideo') {
+      setFormVideoUrl(url);
+      showToast('URL Video berhasil dipilih dari S3!');
+    } else if (s3Target.type === 'subtitles') {
+      setFormSubtitles(url);
+      showToast('URL Subtitle berhasil dipilih dari S3!');
+    } else if (s3Target.type === 'episode' && s3Target.seasonId && s3Target.episodeId) {
+      const { seasonId, episodeId } = s3Target;
+      setFormSeasons((prev) =>
+        prev.map((s) =>
+          s.id === seasonId
+            ? {
+                ...s,
+                episodes: s.episodes.map((ep) =>
+                  ep.id === episodeId ? { ...ep, videourl: url } : ep
+                ),
+              }
+            : s
+        )
+      );
+      showToast('URL Video Episode berhasil dipilih dari S3!');
+    }
+  };
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const toggleSeason = (seasonId: string) => {
@@ -702,9 +747,19 @@ export const CreateModal: React.FC<CreateModalProps> = ({
           {/* Movie / Episode Video Stream URL */}
           {contentType !== 'tv_show' && (
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                URL Video Stream (MP4 / MKV / HLS .m3u8) <span className="text-red-400">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-300">
+                  URL Video Stream (MP4 / MKV / HLS .m3u8) <span className="text-red-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => openS3Browser('video', { type: 'mainVideo' })}
+                  className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors"
+                >
+                  <Cloud size={13} />
+                  <span>Browse S3 Storage</span>
+                </button>
+              </div>
               <input
                 type="text"
                 value={formVideoUrl}
@@ -838,7 +893,17 @@ export const CreateModal: React.FC<CreateModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">Subtitles (VTT/SRT)</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-300">Subtitles (VTT/SRT)</label>
+                <button
+                  type="button"
+                  onClick={() => openS3Browser('subtitle', { type: 'subtitles' })}
+                  className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                >
+                  <Cloud size={12} />
+                  <span>Browse S3</span>
+                </button>
+              </div>
               <input
                 type="text"
                 value={formSubtitles}
@@ -1093,9 +1158,25 @@ export const CreateModal: React.FC<CreateModalProps> = ({
 
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                 <div>
-                                  <label className="block text-[11px] text-slate-400 font-bold mb-1">
-                                    URL Video Stream <span className="text-red-400">*</span>
-                                  </label>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] text-slate-400 font-bold">
+                                      URL Video Stream <span className="text-red-400">*</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openS3Browser('video', {
+                                          type: 'episode',
+                                          seasonId: season.id,
+                                          episodeId: ep.id,
+                                        })
+                                      }
+                                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 transition-colors"
+                                    >
+                                      <Cloud size={11} />
+                                      <span>Browse S3</span>
+                                    </button>
+                                  </div>
                                   <div className="flex items-center gap-1.5 bg-black/70 border border-white/10 rounded-lg px-2.5 py-1.5 focus-within:border-cyan-400 min-h-[38px]">
                                     <Play size={12} className="text-cyan-400 flex-shrink-0" />
                                     <input
@@ -1295,6 +1376,21 @@ export const CreateModal: React.FC<CreateModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* S3 Storage Browser Modal */}
+      <S3BrowserModal
+        isOpen={s3BrowserOpen}
+        onClose={() => setS3BrowserOpen(false)}
+        onSelect={handleS3Select}
+        filterMode={s3FilterMode}
+        targetFieldLabel={
+          s3Target.type === 'subtitles'
+            ? 'Subtitles'
+            : s3Target.type === 'episode'
+            ? 'Episode Video Stream'
+            : 'URL Video Stream'
+        }
+      />
     </div>
   );
 };

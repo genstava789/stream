@@ -14,9 +14,11 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Cloud,
 } from 'lucide-react';
 import { EditingItemState, TMDBPreviewData, TVShowItem } from '../types';
 import { BackdropPicker } from './BackdropPicker';
+import { S3BrowserModal } from './S3BrowserModal';
 import { extractTmdbIdAndType, cleanVideoUrl, isValidVideoUrl } from '@/lib/urls';
 
 interface EditableEpisode {
@@ -58,6 +60,36 @@ export const EditModal: React.FC<EditModalProps> = ({
   const [activeEpBackdropId, setActiveEpBackdropId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // S3 Storage Browser State
+  const [s3BrowserOpen, setS3BrowserOpen] = useState(false);
+  const [s3Target, setS3Target] = useState<{
+    type: 'mainVideo' | 'subtitles' | 'episode';
+    episodeId?: string;
+  }>({ type: 'mainVideo' });
+  const [s3FilterMode, setS3FilterMode] = useState<'all' | 'video' | 'subtitle'>('video');
+
+  const openS3Browser = (
+    mode: 'video' | 'subtitle',
+    target: { type: 'mainVideo' | 'subtitles' | 'episode'; episodeId?: string }
+  ) => {
+    setS3FilterMode(mode);
+    setS3Target(target);
+    setS3BrowserOpen(true);
+  };
+
+  const handleS3Select = (url: string) => {
+    if (s3Target.type === 'mainVideo') {
+      updateFrontmatter('videourl', url);
+      showToast('URL Video berhasil dipilih dari S3!');
+    } else if (s3Target.type === 'subtitles') {
+      updateFrontmatter('subtitles', url);
+      showToast('URL Subtitle berhasil dipilih dari S3!');
+    } else if (s3Target.type === 'episode' && s3Target.episodeId) {
+      handleUpdateEpisode(s3Target.episodeId, 'videourl', url);
+      showToast('URL Video Episode berhasil dipilih dari S3!');
+    }
+  };
 
   // Editable episodes state when editing a TV Show
   const [episodesList, setEpisodesList] = useState<EditableEpisode[]>([]);
@@ -446,9 +478,19 @@ export const EditModal: React.FC<EditModalProps> = ({
               {/* Video URL (Movies & Episodes) */}
               {editingItem.type !== 'tv_show' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                    URL Video Stream (videourl)
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-300">
+                      URL Video Stream (videourl)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => openS3Browser('video', { type: 'mainVideo' })}
+                      className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors"
+                    >
+                      <Cloud size={13} />
+                      <span>Browse S3 Storage</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={editingItem.frontmatter.videourl || editingItem.frontmatter.video_url || ''}
@@ -600,9 +642,19 @@ export const EditModal: React.FC<EditModalProps> = ({
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      Subtitles URL
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-300">
+                        Subtitles URL
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => openS3Browser('subtitle', { type: 'subtitles' })}
+                        className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                      >
+                        <Cloud size={12} />
+                        <span>Browse S3</span>
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={editingItem.frontmatter.subtitles || ''}
@@ -825,9 +877,24 @@ export const EditModal: React.FC<EditModalProps> = ({
                               {/* Video URL & Details - Mobile-Friendly */}
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                 <div>
-                                  <label className="block text-[11px] text-slate-400 font-bold mb-1">
-                                    URL Video Stream <span className="text-red-400">*</span>
-                                  </label>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[11px] text-slate-400 font-bold">
+                                      URL Video Stream <span className="text-red-400">*</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openS3Browser('video', {
+                                          type: 'episode',
+                                          episodeId: ep.id,
+                                        })
+                                      }
+                                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 transition-colors"
+                                    >
+                                      <Cloud size={11} />
+                                      <span>Browse S3</span>
+                                    </button>
+                                  </div>
                                   <div className="flex items-center gap-1.5 bg-black/60 border border-white/10 rounded-xl px-3 py-2 focus-within:border-cyan-400 min-h-[40px]">
                                     <Play size={13} className="text-cyan-400 flex-shrink-0" />
                                     <input
@@ -945,6 +1012,21 @@ export const EditModal: React.FC<EditModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* S3 Storage Browser Modal */}
+      <S3BrowserModal
+        isOpen={s3BrowserOpen}
+        onClose={() => setS3BrowserOpen(false)}
+        onSelect={handleS3Select}
+        filterMode={s3FilterMode}
+        targetFieldLabel={
+          s3Target.type === 'subtitles'
+            ? 'Subtitles'
+            : s3Target.type === 'episode'
+            ? 'Episode Video Stream'
+            : 'URL Video Stream'
+        }
+      />
     </div>
   );
 };

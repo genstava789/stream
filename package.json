@@ -15,6 +15,7 @@
     "postinstall": "node scripts/patch-opennext.js && node scripts/generate-static-registry.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1125.0",
     "autoprefixer": "^10.0.1",
     "gray-matter": "^4.0.3",
     "hls.js": "^1.7.1",
