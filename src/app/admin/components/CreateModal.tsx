@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { DraftSeason, TMDBPreviewData, MovieItem, TVShowItem } from '../types';
 import { BackdropPicker } from './BackdropPicker';
-import { cleanVideoUrl, isValidVideoUrl } from '@/lib/urls';
+import { cleanVideoUrl, isValidVideoUrl, extractTmdbIdAndType } from '@/lib/urls';
 
 interface TMDBLiveSearchResult {
   id: number;
@@ -30,6 +30,7 @@ interface TMDBLiveSearchResult {
   backdropUrl: string | null;
   year: string | null;
   rating: number | null;
+  originalLanguage?: string | null;
   mediaType: string;
 }
 
@@ -203,17 +204,22 @@ export const CreateModal: React.FC<CreateModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSelectSearchResult = (item: TMDBLiveSearchResult) => {
+  const handleSelectSearchResult = async (item: TMDBLiveSearchResult) => {
     setSelectedTmdbResult(item);
     setFormTmdbId(String(item.id));
     setSearchResults([]);
-    showToast(`TMDB terpilih: ${item.title}. Klik "Terapkan Metadata ke Form" untuk mengisi form.`);
+    setSearchQuery('');
+    await handleApplyTmdbToForm(String(item.id));
   };
 
-  const handleApplyTmdbToForm = async () => {
-    if (!selectedTmdbResult && !formTmdbId) return;
+  const handleApplyTmdbToForm = async (explicitId?: string) => {
+    const rawId = explicitId || (selectedTmdbResult ? selectedTmdbResult.id : formTmdbId);
+    if (!rawId) return;
 
-    const idToFetch = selectedTmdbResult ? selectedTmdbResult.id : formTmdbId;
+    const extracted = extractTmdbIdAndType(String(rawId));
+    const idToFetch = extracted.id || String(rawId).trim();
+    if (!idToFetch) return;
+
     const type = contentType === 'tv_show' ? 'tv' : 'movie';
 
     setFetchingTmdb(true);
@@ -231,20 +237,34 @@ export const CreateModal: React.FC<CreateModalProps> = ({
         if (data.originalLanguage) {
           const l = data.originalLanguage.toLowerCase().trim();
           if (l === 'id' || l === 'ind') setFormLanguage('ID');
+          else if (l === 'ms' || l === 'zlm' || l === 'mly') setFormLanguage('MS');
           else if (l === 'ko' || l === 'kr' || l === 'kor') setFormLanguage('KR');
           else if (l === 'en' || l === 'eng') setFormLanguage('EN');
-          else if (l === 'ja' || l === 'jp' || l === 'jpn') setFormLanguage('JP');
-          else if (l === 'th' || l === 'tha') setFormLanguage('TH');
-          else if (l === 'zh' || l === 'cn' || l === 'zho' || l === 'chi') setFormLanguage('CN');
+          else if (l === 'ja' || l === 'jp' || l === 'jpn') {
+            const isAnime = data.genres?.some((g) => g.toLowerCase().includes('animation') || g.toLowerCase().includes('anime'));
+            setFormLanguage(isAnime ? 'ANIME' : 'JP');
+          } else if (l === 'th' || l === 'tha') setFormLanguage('TH');
+          else if (l === 'zh' || l === 'cn' || l === 'zho' || l === 'chi' || l === 'yue') setFormLanguage('CN');
           else setFormLanguage(data.originalLanguage.toUpperCase().slice(0, 2));
         }
-        showToast('Data TMDB berhasil diterapkan ke form!');
+        showToast(`Metadata & Bahasa (${data.originalLanguage?.toUpperCase() || 'ID'}) berhasil diterapkan ke form!`);
       } else {
         if (selectedTmdbResult) {
           setFormTitle(selectedTmdbResult.title);
           setFormDesc(selectedTmdbResult.overview);
           if (selectedTmdbResult.posterUrl) setFormPoster(selectedTmdbResult.posterUrl);
           if (selectedTmdbResult.rating) setFormRating(String(selectedTmdbResult.rating));
+          if (selectedTmdbResult.originalLanguage) {
+            const l = selectedTmdbResult.originalLanguage.toLowerCase().trim();
+            if (l === 'id' || l === 'ind') setFormLanguage('ID');
+            else if (l === 'ms' || l === 'zlm' || l === 'mly') setFormLanguage('MS');
+            else if (l === 'ko' || l === 'kr' || l === 'kor') setFormLanguage('KR');
+            else if (l === 'en' || l === 'eng') setFormLanguage('EN');
+            else if (l === 'ja' || l === 'jp' || l === 'jpn') setFormLanguage('JP');
+            else if (l === 'th' || l === 'tha') setFormLanguage('TH');
+            else if (l === 'zh' || l === 'cn' || l === 'zho' || l === 'chi' || l === 'yue') setFormLanguage('CN');
+            else setFormLanguage(selectedTmdbResult.originalLanguage.toUpperCase().slice(0, 2));
+          }
           showToast('Data pencarian TMDB diterapkan ke form!');
         }
       }
@@ -558,7 +578,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={handleApplyTmdbToForm}
+                    onClick={() => handleApplyTmdbToForm()}
                     disabled={fetchingTmdb}
                     className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black shadow-md shadow-cyan-500/20 flex items-center justify-center gap-1.5 transition-all active:scale-95 flex-shrink-0"
                   >
@@ -576,15 +596,29 @@ export const CreateModal: React.FC<CreateModalProps> = ({
               <label className="block text-xs font-bold text-slate-300">
                 TMDB ID <span className="text-red-400">*</span>
               </label>
-              <input
-                type="text"
-                value={formTmdbId}
-                onChange={(e) => setFormTmdbId(e.target.value)}
-                placeholder="Contoh: 1288445"
-                className={`w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none min-h-[42px] ${
-                  formErrors.formTmdbId ? 'border-red-500' : 'border-white/10 focus:border-cyan-500'
-                }`}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={formTmdbId}
+                  onChange={(e) => setFormTmdbId(e.target.value)}
+                  placeholder="Contoh: 1671701"
+                  className={`flex-1 px-3.5 py-2.5 sm:py-3 bg-black/50 border rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none min-h-[42px] ${
+                    formErrors.formTmdbId ? 'border-red-500' : 'border-white/10 focus:border-cyan-500'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleApplyTmdbToForm(formTmdbId);
+                  }}
+                  disabled={fetchingTmdb || !formTmdbId.trim()}
+                  className="px-4 py-2.5 sm:py-3 rounded-xl text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 transition-all disabled:opacity-50 min-h-[42px] flex-shrink-0"
+                  title="Cek TMDB & Auto-fill Metadata dan Bahasa"
+                >
+                  <Sparkles size={14} className={fetchingTmdb ? 'animate-spin' : ''} />
+                  <span>{fetchingTmdb ? 'Memuat...' : 'Cek TMDB'}</span>
+                </button>
+              </div>
               {formErrors.formTmdbId && (
                 <p className="text-[10px] text-red-400">{formErrors.formTmdbId}</p>
               )}
@@ -794,6 +828,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
                 className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
               >
                 <option value="ID">ID - Indonesia</option>
+                <option value="MS">MS - Melayu / Malaysia</option>
                 <option value="KR">KR - Korea (Drakor)</option>
                 <option value="EN">EN - English (Barat)</option>
                 <option value="JP">JP - Jepang (Live Action / Biasa)</option>

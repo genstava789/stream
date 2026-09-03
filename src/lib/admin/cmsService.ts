@@ -477,7 +477,12 @@ export async function fetchPaginatedAdminContent(
       if (reqLang === 'ID') {
         filtered = filtered.filter((m) => {
           const l = (m.frontmatter.language || 'ID').toUpperCase();
-          return l === 'ID' || l === 'MS' || l === 'MY' || l === 'IND' || l === 'MALAY' || l === 'MELAYU';
+          return l === 'ID' || l === 'IND' || l === 'INDONESIA';
+        });
+      } else if (reqLang === 'MS') {
+        filtered = filtered.filter((m) => {
+          const l = (m.frontmatter.language || '').toUpperCase();
+          return l === 'MS' || l === 'MY' || l === 'MALAY' || l === 'MELAYU';
         });
       } else {
         filtered = filtered.filter((m) => (m.frontmatter.language || 'ID').toUpperCase() === reqLang);
@@ -580,7 +585,12 @@ export async function fetchPaginatedAdminContent(
       if (reqLang === 'ID') {
         filtered = filtered.filter((s) => {
           const l = (s.indexFrontmatter.language || 'ID').toUpperCase();
-          return l === 'ID' || l === 'MS' || l === 'MY' || l === 'IND' || l === 'MALAY' || l === 'MELAYU';
+          return l === 'ID' || l === 'IND' || l === 'INDONESIA';
+        });
+      } else if (reqLang === 'MS') {
+        filtered = filtered.filter((s) => {
+          const l = (s.indexFrontmatter.language || '').toUpperCase();
+          return l === 'MS' || l === 'MY' || l === 'MALAY' || l === 'MELAYU';
         });
       } else {
         filtered = filtered.filter((s) => (s.indexFrontmatter.language || 'ID').toUpperCase() === reqLang);

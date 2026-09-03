@@ -124,6 +124,25 @@ export const EditModal: React.FC<EditModalProps> = ({
       if (res.ok) {
         const data: TMDBPreviewData = await res.json();
         setTmdbPreview(data);
+
+        // Auto-detect and auto-fill language from TMDB
+        if (data.originalLanguage) {
+          const l = data.originalLanguage.toLowerCase().trim();
+          let detectedLang = 'ID';
+          if (l === 'id' || l === 'ind') detectedLang = 'ID';
+          else if (l === 'ms' || l === 'zlm' || l === 'mly') detectedLang = 'MS';
+          else if (l === 'ko' || l === 'kr' || l === 'kor') detectedLang = 'KR';
+          else if (l === 'en' || l === 'eng') detectedLang = 'EN';
+          else if (l === 'ja' || l === 'jp' || l === 'jpn') {
+            const isAnime = data.genres?.some((g) => g.toLowerCase().includes('animation') || g.toLowerCase().includes('anime'));
+            detectedLang = isAnime ? 'ANIME' : 'JP';
+          } else if (l === 'th' || l === 'tha') detectedLang = 'TH';
+          else if (l === 'zh' || l === 'cn' || l === 'zho' || l === 'chi' || l === 'yue') detectedLang = 'CN';
+          else detectedLang = data.originalLanguage.toUpperCase().slice(0, 2);
+
+          updateFrontmatter('language', detectedLang);
+          showToast(`Bahasa otomatis terdeteksi: ${detectedLang}`);
+        }
       }
     } catch {
     } finally {
@@ -537,6 +556,7 @@ export const EditModal: React.FC<EditModalProps> = ({
                       className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
                     >
                       <option value="ID">ID - Indonesia</option>
+                      <option value="MS">MS - Melayu / Malaysia</option>
                       <option value="KR">KR - Korea (Drakor)</option>
                       <option value="EN">EN - English (Barat)</option>
                       <option value="JP">JP - Jepang (Live Action / Biasa)</option>

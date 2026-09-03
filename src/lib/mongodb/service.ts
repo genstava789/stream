@@ -418,7 +418,9 @@ export async function getPaginatedMongoMovies(
         if (options.language && options.language !== 'all') {
           const cleanLang = options.language.toUpperCase().trim();
           if (cleanLang === 'ID') {
-            filter.language = { $in: ['ID', 'MS', 'MY', 'IND', 'INDONESIA', 'MALAY', 'MELAYU'] };
+            filter.language = { $in: ['ID', 'IND', 'INDONESIA'] };
+          } else if (cleanLang === 'MS') {
+            filter.language = { $in: ['MS', 'MY', 'MALAY', 'MELAYU'] };
           } else {
             filter.language = cleanLang;
           }
@@ -647,7 +649,9 @@ export async function getPaginatedMongoTVShows(
         if (options.language && options.language !== 'all') {
           const cleanLang = options.language.toUpperCase().trim();
           if (cleanLang === 'ID') {
-            filter.language = { $in: ['ID', 'MS', 'MY', 'IND', 'INDONESIA', 'MALAY', 'MELAYU'] };
+            filter.language = { $in: ['ID', 'IND', 'INDONESIA'] };
+          } else if (cleanLang === 'MS') {
+            filter.language = { $in: ['MS', 'MY', 'MALAY', 'MELAYU'] };
           } else {
             filter.language = cleanLang;
           }

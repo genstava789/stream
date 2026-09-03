@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
         backdropUrl: item.backdrop_path ? getImageUrl(item.backdrop_path, 'w780') : null,
         year: item.first_air_date ? item.first_air_date.slice(0, 4) : null,
         rating: item.vote_average ? Math.round(item.vote_average * 10) / 10 : null,
+        originalLanguage: item.original_language || null,
         mediaType: 'tv',
       }));
       return NextResponse.json({ results });
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
         backdropUrl: item.backdrop_path ? getImageUrl(item.backdrop_path, 'w780') : null,
         year: item.release_date ? item.release_date.slice(0, 4) : null,
         rating: item.vote_average ? Math.round(item.vote_average * 10) / 10 : null,
+        originalLanguage: item.original_language || null,
         mediaType: 'movie',
       }));
       return NextResponse.json({ results });
@@ -56,6 +58,7 @@ export async function GET(request: NextRequest) {
         year: item.release_date ? item.release_date.slice(0, 4) : null,
         rating: item.vote_average ? Math.round(item.vote_average * 10) / 10 : null,
         popularity: item.popularity || 0,
+        originalLanguage: item.original_language || null,
         mediaType: 'movie',
       }));
 
@@ -68,6 +71,7 @@ export async function GET(request: NextRequest) {
         year: item.first_air_date ? item.first_air_date.slice(0, 4) : null,
         rating: item.vote_average ? Math.round(item.vote_average * 10) / 10 : null,
         popularity: item.popularity || 0,
+        originalLanguage: item.original_language || null,
         mediaType: 'tv',
       }));
 

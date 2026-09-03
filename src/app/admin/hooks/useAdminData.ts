@@ -137,7 +137,7 @@ export function useAdminData() {
 
   // Filter & Sort state
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'rating' | 'title' | 'weight'>('newest');
-  const [filterLanguage, setFilterLanguage] = useState<'all' | 'ID' | 'KR' | 'EN' | 'JP' | 'TH' | 'CN'>('all');
+  const [filterLanguage, setFilterLanguage] = useState<'all' | 'ID' | 'MS' | 'KR' | 'EN' | 'JP' | 'ANIME' | 'TH' | 'CN'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'trending' | 'featured'>('all');
 
   // Fetch paginated admin content

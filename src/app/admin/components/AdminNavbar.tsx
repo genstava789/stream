@@ -28,8 +28,8 @@ interface AdminNavbarProps {
   setSearchQuery: (q: string) => void;
   sortOrder: 'newest' | 'oldest' | 'rating' | 'title' | 'weight';
   setSortOrder: (s: 'newest' | 'oldest' | 'rating' | 'title' | 'weight') => void;
-  filterLanguage: 'all' | 'ID' | 'KR' | 'EN' | 'JP' | 'TH' | 'CN';
-  setFilterLanguage: (l: 'all' | 'ID' | 'KR' | 'EN' | 'JP' | 'TH' | 'CN') => void;
+  filterLanguage: 'all' | 'ID' | 'MS' | 'KR' | 'EN' | 'JP' | 'ANIME' | 'TH' | 'CN';
+  setFilterLanguage: (l: 'all' | 'ID' | 'MS' | 'KR' | 'EN' | 'JP' | 'ANIME' | 'TH' | 'CN') => void;
   filterStatus: 'all' | 'trending' | 'featured';
   setFilterStatus: (st: 'all' | 'trending' | 'featured') => void;
   moviesCount: number;
@@ -310,6 +310,7 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
               >
                 <option value="all" className="bg-[#090e1f] text-white">Semua Bahasa</option>
                 <option value="ID" className="bg-[#090e1f] text-white">ID - Indonesia</option>
+                <option value="MS" className="bg-[#090e1f] text-white">MS - Melayu / Malaysia</option>
                 <option value="KR" className="bg-[#090e1f] text-white">KR - Korea</option>
                 <option value="EN" className="bg-[#090e1f] text-white">EN - English</option>
                 <option value="JP" className="bg-[#090e1f] text-white">JP - Jepang (Live Action)</option>
