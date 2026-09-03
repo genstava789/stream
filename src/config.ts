@@ -126,7 +126,7 @@ export const siteConfig = {
     {
       id: 'trending',
       title: 'Trending This Week',
-      type: 'mixed',
+      type: 'movie',
       pages: { home: true, movie: false, tv: false },
       weight: 10,
       limit: 10,
