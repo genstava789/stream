@@ -416,7 +416,12 @@ export async function getPaginatedMongoMovies(
         }
 
         if (options.language && options.language !== 'all') {
-          filter.language = options.language.toUpperCase().trim();
+          const cleanLang = options.language.toUpperCase().trim();
+          if (cleanLang === 'ID') {
+            filter.language = { $in: ['ID', 'MS', 'MY', 'IND', 'INDONESIA', 'MALAY', 'MELAYU'] };
+          } else {
+            filter.language = cleanLang;
+          }
         }
 
         if (options.status === 'trending') {
@@ -546,11 +551,16 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
   const slug = data.slug || (data.title ? slugify(data.title) : `movie-${data.tmdb_id}`);
   const now = Date.now();
 
-  const existing = await movies.findOne({ slug });
+  const queryOr: any[] = [{ slug }, { slug: `${slug}.md` }];
+  if (data.tmdb_id) queryOr.push({ tmdb_id: Number(data.tmdb_id) });
+
+  const existing = await movies.findOne({ $or: queryOr }).catch(() => null);
+  const finalSlug = existing?.slug || slug;
+
   const doc: MongoMovie = {
-    slug,
+    slug: finalSlug,
     tmdb_id: data.tmdb_id !== undefined ? Number(data.tmdb_id) : (existing?.tmdb_id || 0),
-    title: (data.title !== undefined ? data.title : (existing?.title || slug)).trim(),
+    title: (data.title !== undefined ? data.title : (existing?.title || finalSlug)).trim(),
     videourl: (data.videourl !== undefined ? cleanVideoUrl(data.videourl) : (existing?.videourl || '')).trim(),
     image_url: (data.image_url !== undefined ? data.image_url : (existing?.image_url || '')).trim(),
     deskripsi: (data.deskripsi !== undefined ? data.deskripsi : (existing?.deskripsi || '')).trim(),
@@ -563,10 +573,10 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
     duration: (data.duration !== undefined ? data.duration : (existing?.duration || '')).trim(),
     content: data.content !== undefined ? data.content : (existing?.content || ''),
     createdAt: existing?.createdAt || data.createdAt || now,
-    updatedAt: now,
+    updatedAt: data.updatedAt || now,
   };
 
-  await movies.updateOne({ slug }, { $set: doc }, { upsert: true });
+  await movies.updateOne({ $or: queryOr }, { $set: doc }, { upsert: true });
   invalidateAllMongoCaches();
   return doc;
 }
@@ -635,7 +645,12 @@ export async function getPaginatedMongoTVShows(
         }
 
         if (options.language && options.language !== 'all') {
-          filter.language = options.language.toUpperCase().trim();
+          const cleanLang = options.language.toUpperCase().trim();
+          if (cleanLang === 'ID') {
+            filter.language = { $in: ['ID', 'MS', 'MY', 'IND', 'INDONESIA', 'MALAY', 'MELAYU'] };
+          } else {
+            filter.language = cleanLang;
+          }
         }
 
         if (options.status === 'trending') {
@@ -825,11 +840,16 @@ export async function saveMongoTVShow(
   const showSlug = data.showSlug || (data.title ? slugify(data.title) : `tv-${data.tmdb_id}`);
   const now = Date.now();
 
-  const existing = await tvShows.findOne({ showSlug });
+  const queryOr: any[] = [{ showSlug }, { showSlug: `${showSlug}.md` }];
+  if (data.tmdb_id) queryOr.push({ tmdb_id: Number(data.tmdb_id) });
+
+  const existing = await tvShows.findOne({ $or: queryOr }).catch(() => null);
+  const finalShowSlug = existing?.showSlug || showSlug;
+
   const showDoc: MongoTVShow = {
-    showSlug,
+    showSlug: finalShowSlug,
     tmdb_id: data.tmdb_id !== undefined ? Number(data.tmdb_id) : (existing?.tmdb_id || 0),
-    title: (data.title !== undefined ? data.title : (existing?.title || showSlug)).trim(),
+    title: (data.title !== undefined ? data.title : (existing?.title || finalShowSlug)).trim(),
     image_url: (data.image_url !== undefined ? data.image_url : (existing?.image_url || '')).trim(),
     deskripsi: (data.deskripsi !== undefined ? data.deskripsi : (existing?.deskripsi || '')).trim(),
     rating: data.rating !== undefined && data.rating !== null ? Number(data.rating) : (existing?.rating || 0),
@@ -839,10 +859,10 @@ export async function saveMongoTVShow(
     weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : existing?.weight,
     content: data.content !== undefined ? data.content : (existing?.content || ''),
     createdAt: existing?.createdAt || data.createdAt || now,
-    updatedAt: now,
+    updatedAt: data.updatedAt || now,
   };
 
-  await tvShows.updateOne({ showSlug }, { $set: showDoc }, { upsert: true });
+  await tvShows.updateOne({ $or: queryOr }, { $set: showDoc }, { upsert: true });
 
   // Save/Update episodes
   for (const ep of episodesList) {

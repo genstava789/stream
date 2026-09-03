@@ -793,8 +793,8 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
                 trending: Boolean(data.trending),
                 language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                 weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
-                createdAt: fileTime,
-                updatedAt: fileTime,
+                createdAt: Number(data.createdAt) || fileTime,
+                updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
               });
             } catch {}
           }

@@ -1141,8 +1141,8 @@ export async function getAllCustomTVShowsForList(): Promise<any[]> {
                   language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                   weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
                   episodes: [],
-                  createdAt: fileTime,
-                  updatedAt: fileTime,
+                  createdAt: Number(data.createdAt) || fileTime,
+                  updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
                 });
               }
             } catch {}

@@ -32,7 +32,17 @@ export interface ResolvedSection {
 function normalizeLangCode(code?: string): string {
   if (!code) return '';
   const clean = code.trim().toUpperCase();
-  if (clean === 'ID' || clean === 'IND' || clean === 'INDONESIA') return 'ID';
+  if (
+    clean === 'ID' ||
+    clean === 'IND' ||
+    clean === 'INDONESIA' ||
+    clean === 'MS' ||
+    clean === 'MY' ||
+    clean === 'MALAY' ||
+    clean === 'MELAYU'
+  ) {
+    return 'ID';
+  }
   if (clean === 'KR' || clean === 'KO' || clean === 'KOR' || clean === 'KOREA') return 'KR';
   if (clean === 'EN' || clean === 'ENG' || clean === 'US' || clean === 'GB') return 'EN';
   if (clean === 'ANIME' || clean === 'JP_ANIME' || clean === 'JA_ANIME' || clean === 'JAPAN_ANIME') return 'ANIME';

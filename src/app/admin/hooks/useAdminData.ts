@@ -346,8 +346,10 @@ export function useAdminData() {
     showToast('Perubahan berhasil disimpan & live!');
     adminClientCache.clear();
     setPageLoading(true);
+    setMoviePage(1);
+    setTvPage(1);
     try {
-      await fetchContent({ force: true });
+      await fetchContent({ customMoviePage: 1, customTvPage: 1, force: true });
     } finally {
       setPageLoading(false);
     }

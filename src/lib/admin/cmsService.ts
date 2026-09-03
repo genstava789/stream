@@ -272,7 +272,7 @@ export async function fetchPaginatedAdminContent(
                   relativePath: `video/${file}`,
                   frontmatter: data || {},
                   content: content || '',
-                  updatedAt: stat.mtimeMs || Date.now(),
+                  updatedAt: Number(data?.updatedAt) || Number(data?.createdAt) || stat.mtimeMs || Date.now(),
                 };
               } catch {
                 return null;
@@ -297,7 +297,7 @@ export async function fetchPaginatedAdminContent(
                   relativePath: `video/${file}`,
                   frontmatter: data || {},
                   content: content || '',
-                  updatedAt: Date.now(),
+                  updatedAt: Number(data?.updatedAt) || Number(data?.createdAt) || 0,
                 });
               } catch {}
             }
@@ -473,7 +473,15 @@ export async function fetchPaginatedAdminContent(
       );
     }
     if (language && language !== 'all') {
-      filtered = filtered.filter((m) => (m.frontmatter.language || 'ID').toUpperCase() === language.toUpperCase());
+      const reqLang = language.toUpperCase().trim();
+      if (reqLang === 'ID') {
+        filtered = filtered.filter((m) => {
+          const l = (m.frontmatter.language || 'ID').toUpperCase();
+          return l === 'ID' || l === 'MS' || l === 'MY' || l === 'IND' || l === 'MALAY' || l === 'MELAYU';
+        });
+      } else {
+        filtered = filtered.filter((m) => (m.frontmatter.language || 'ID').toUpperCase() === reqLang);
+      }
     }
     if (status === 'trending') {
       filtered = filtered.filter((m) => Boolean(m.frontmatter.trending));
@@ -568,7 +576,15 @@ export async function fetchPaginatedAdminContent(
       );
     }
     if (language && language !== 'all') {
-      filtered = filtered.filter((s) => (s.indexFrontmatter.language || 'ID').toUpperCase() === language.toUpperCase());
+      const reqLang = language.toUpperCase().trim();
+      if (reqLang === 'ID') {
+        filtered = filtered.filter((s) => {
+          const l = (s.indexFrontmatter.language || 'ID').toUpperCase();
+          return l === 'ID' || l === 'MS' || l === 'MY' || l === 'IND' || l === 'MALAY' || l === 'MELAYU';
+        });
+      } else {
+        filtered = filtered.filter((s) => (s.indexFrontmatter.language || 'ID').toUpperCase() === reqLang);
+      }
     }
     if (status === 'trending') {
       filtered = filtered.filter((s) => Boolean(s.indexFrontmatter.trending));
@@ -1689,13 +1705,16 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
       cleanFrontmatter[key] = false;
     }
   }
+  cleanFrontmatter.updatedAt = Date.now();
 
   let fileContent = '';
+  const now = Date.now();
   if (isMovie) {
     if (cleanFrontmatter.videourl && !isValidVideoUrl(cleanFrontmatter.videourl)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
+    cleanFrontmatter.updatedAt = now;
     fileContent = serializeTinaMovie(cleanFrontmatter, content || '');
     const slug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
     try {
@@ -1714,11 +1733,13 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
         subtitles: cleanFrontmatter.subtitles,
         duration: cleanFrontmatter.duration,
         content: content || '',
+        updatedAt: now,
       });
     } catch (mErr) {
       console.warn('[updateAdminContent] MongoDB movie update notice:', mErr);
     }
   } else if (relativePath.endsWith('_index.md') || relativePath.endsWith('index.md')) {
+    cleanFrontmatter.updatedAt = now;
     fileContent = serializeTinaTVShow(cleanFrontmatter, content || '');
     const showSlug = relativePath.split('/')[1];
     const mongoEps = Array.isArray(body.episodes)

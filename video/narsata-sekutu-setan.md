@@ -8,6 +8,7 @@ deskripsi: >-
   path without realizing that every action has a price.
 image_url: 'https://image.tmdb.org/t/p/w1280/avstHzee45yEG2krW6snBgfycs9.jpg'
 rating: 7
-language: MS
+language: ID
+updatedAt: 1772600000000
 ---
 
