@@ -204,12 +204,11 @@ export const CreateModal: React.FC<CreateModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSelectSearchResult = async (item: TMDBLiveSearchResult) => {
+  const handleSelectSearchResult = (item: TMDBLiveSearchResult) => {
     setSelectedTmdbResult(item);
     setFormTmdbId(String(item.id));
     setSearchResults([]);
-    setSearchQuery('');
-    await handleApplyTmdbToForm(String(item.id));
+    showToast(`TMDB terpilih: ${item.title}. Klik "Terapkan Metadata ke Form" untuk mengisi form.`);
   };
 
   const handleApplyTmdbToForm = async (explicitId?: string) => {
@@ -596,29 +595,15 @@ export const CreateModal: React.FC<CreateModalProps> = ({
               <label className="block text-xs font-bold text-slate-300">
                 TMDB ID <span className="text-red-400">*</span>
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={formTmdbId}
-                  onChange={(e) => setFormTmdbId(e.target.value)}
-                  placeholder="Contoh: 1671701"
-                  className={`flex-1 px-3.5 py-2.5 sm:py-3 bg-black/50 border rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none min-h-[42px] ${
-                    formErrors.formTmdbId ? 'border-red-500' : 'border-white/10 focus:border-cyan-500'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleApplyTmdbToForm(formTmdbId);
-                  }}
-                  disabled={fetchingTmdb || !formTmdbId.trim()}
-                  className="px-4 py-2.5 sm:py-3 rounded-xl text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 transition-all disabled:opacity-50 min-h-[42px] flex-shrink-0"
-                  title="Cek TMDB & Auto-fill Metadata dan Bahasa"
-                >
-                  <Sparkles size={14} className={fetchingTmdb ? 'animate-spin' : ''} />
-                  <span>{fetchingTmdb ? 'Memuat...' : 'Cek TMDB'}</span>
-                </button>
-              </div>
+              <input
+                type="text"
+                value={formTmdbId}
+                onChange={(e) => setFormTmdbId(e.target.value)}
+                placeholder="Contoh: 1671701"
+                className={`w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none min-h-[42px] ${
+                  formErrors.formTmdbId ? 'border-red-500' : 'border-white/10 focus:border-cyan-500'
+                }`}
+              />
               {formErrors.formTmdbId && (
                 <p className="text-[10px] text-red-400">{formErrors.formTmdbId}</p>
               )}
