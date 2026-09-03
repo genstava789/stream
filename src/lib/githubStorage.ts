@@ -451,6 +451,107 @@ export async function getGitHubBlob(sha: string, options: GitHubOptions = {}): P
 }
 
 /**
+ * Ensures the target GitHub repository exists. If it does not exist (404),
+ * automatically attempts to create the repository under the authenticated user's account or organization.
+ */
+export async function ensureGitHubRepository(options: GitHubOptions = {}): Promise<{
+  created: boolean;
+  repoFullName: string;
+  defaultBranch: string;
+}> {
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
+  if (!token) throw new Error('GitHub token is required to access or create repository');
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'LeviStream-CMS',
+  };
+
+  // 1. Check if repo exists
+  const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}?_t=${Date.now()}`, {
+    headers,
+    cache: 'no-store',
+  });
+
+  if (checkRes.ok) {
+    const data = await checkRes.json();
+    return {
+      created: false,
+      repoFullName: data.full_name,
+      defaultBranch: data.default_branch || branch,
+    };
+  }
+
+  // 401 Unauthorized
+  if (checkRes.status === 401) {
+    throw new Error('Token GitHub tidak valid atau telah kedaluwarsa.');
+  }
+
+  // Other HTTP error (not 404)
+  if (checkRes.status !== 404) {
+    const err = await checkRes.json().catch(() => ({}));
+    throw new Error(err.message || `Gagal memeriksa repository di GitHub (HTTP ${checkRes.status})`);
+  }
+
+  // 2. Repo does not exist (404). Attempt automatic creation!
+  console.log(`[githubStorage] Repository '${owner}/${repo}' tidak ditemukan. Mencoba membuat repositori baru secara otomatis di GitHub...`);
+
+  const userRes = await fetch('https://api.github.com/user', { headers, cache: 'no-store' });
+  if (!userRes.ok) {
+    const userErr = await userRes.json().catch(() => ({}));
+    throw new Error(
+      `Repository '${owner}/${repo}' tidak ditemukan di GitHub, dan gagal memverifikasi token pengguna (${userErr.message || userRes.statusText}). Pastikan token memiliki izin 'repo'.`
+    );
+  }
+
+  const userData = await userRes.json();
+  const authUsername = userData.login || '';
+  const isPersonal = !owner || owner.toLowerCase() === authUsername.toLowerCase();
+
+  const createUrl = isPersonal
+    ? 'https://api.github.com/user/repos'
+    : `https://api.github.com/orgs/${owner}/repos`;
+
+  const createBody = {
+    name: repo,
+    private: true,
+    description: 'LeviStream Content Storage - Backup Repository',
+    auto_init: true,
+  };
+
+  const createRes = await fetch(createUrl, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+    body: JSON.stringify(createBody),
+  });
+
+  if (!createRes.ok) {
+    const createErr = await createRes.json().catch(() => ({}));
+    const reason = createErr.message || createRes.statusText;
+    throw new Error(
+      `Repository '${owner}/${repo}' tidak ditemukan di GitHub, dan pembuatan otomatis gagal (${reason}). Pastikan Personal Access Token memiliki izin 'repo'.`
+    );
+  }
+
+  const newRepoData = await createRes.json();
+  console.log(`[githubStorage] Berhasil membuat repository baru '${newRepoData.full_name}'. Menginisialisasi...`);
+
+  // Wait 1.5s for GitHub to initialize branch
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  return {
+    created: true,
+    repoFullName: newRepoData.full_name,
+    defaultBranch: newRepoData.default_branch || branch || 'main',
+  };
+}
+
+/**
  * Commits multiple files atomically to GitHub in a single commit using GitHub Git Trees API.
  * This is 50x faster, prevents partial syncs, timeouts, or stale race conditions.
  */
@@ -458,13 +559,16 @@ export async function commitMultipleGitHubFiles(
   files: { path: string; content: string }[],
   commitMessage: string,
   options: GitHubOptions = {}
-): Promise<{ success: boolean; commitSha: string; syncedCount: number }> {
+): Promise<{ success: boolean; commitSha: string; syncedCount: number; createdRepo?: boolean }> {
   const { owner, repo, branch, token } = resolveGitHubOptions(options);
   if (!token) throw new Error('GitHub token is required to commit to GitHub repository');
 
   if (!files || files.length === 0) {
     return { success: true, commitSha: '', syncedCount: 0 };
   }
+
+  // 1. Ensure target repository exists, or auto-create it
+  const repoStatus = await ensureGitHubRepository(options);
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -474,7 +578,7 @@ export async function commitMultipleGitHubFiles(
   };
 
   try {
-    // 1. Get the latest commit SHA of the target branch, or initialize empty repository
+    // 2. Get the latest commit SHA of the target branch, or initialize empty repository
     const refRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}?_t=${Date.now()}`,
       { headers, cache: 'no-store' }
@@ -485,7 +589,7 @@ export async function commitMultipleGitHubFiles(
 
     if (!refRes.ok) {
       if (refRes.status === 404) {
-        // Repository or branch is empty. Initialize branch with a README.md first
+        // Branch is not initialized yet. Initialize branch with a README.md first
         const initRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/contents/README.md`,
           {
@@ -501,7 +605,7 @@ export async function commitMultipleGitHubFiles(
         );
         if (!initRes.ok) {
           const initErr = await initRes.json().catch(() => ({}));
-          throw new Error(`Repository '${owner}/${repo}' tidak ditemukan atau token tidak memiliki izin tulis (${initErr.message || initRes.statusText}).`);
+          throw new Error(`Repository '${owner}/${repo}' tidak dapat diinisialisasi (${initErr.message || initRes.statusText}).`);
         }
         const initData = await initRes.json();
         latestCommitSha = initData.commit.sha;
@@ -601,23 +705,34 @@ export async function commitMultipleGitHubFiles(
       success: true,
       commitSha: newCommitSha,
       syncedCount: files.length,
+      createdRepo: repoStatus.created,
     };
   } catch (treeErr: any) {
-    console.warn('[commitMultipleGitHubFiles] Git Tree API error, falling back to sequential save:', treeErr);
+    console.warn('[commitMultipleGitHubFiles] Git Tree API notice, falling back to sequential save:', treeErr);
     // Fallback to sequential saves if Git Trees API encounters an issue
     let count = 0;
+    const saveErrors: string[] = [];
     for (const file of files) {
       try {
         await saveGitHubFile(file.path, file.content, `cms: sync ${file.path}`, options);
         count++;
-      } catch (saveErr) {
+      } catch (saveErr: any) {
         console.warn(`[commitMultipleGitHubFiles] Error saving ${file.path}:`, saveErr);
+        saveErrors.push(saveErr?.message || String(saveErr));
       }
     }
+
+    if (count === 0 && files.length > 0) {
+      throw new Error(
+        `Gagal melakukan push ke repository '${owner}/${repo}': ${saveErrors[0] || treeErr.message || 'Semua file gagal disimpan'}`
+      );
+    }
+
     return {
       success: true,
       commitSha: 'sequential-fallback',
       syncedCount: count,
+      createdRepo: repoStatus.created,
     };
   }
 }

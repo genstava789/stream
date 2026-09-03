@@ -176,6 +176,9 @@ export interface FetchPaginatedAdminOptions {
   tvPage?: number;
   search?: string;
   limit?: number;
+  sort?: 'newest' | 'oldest' | 'rating' | 'title' | 'weight';
+  language?: string;
+  status?: string;
 }
 
 /**
@@ -192,12 +195,15 @@ export async function fetchPaginatedAdminContent(
   const moviePage = Math.max(1, Number(options.moviePage) || 1);
   const tvPage = Math.max(1, Number(options.tvPage) || 1);
   const search = (options.search || '').trim().toLowerCase();
+  const sort = options.sort || 'newest';
+  const language = options.language || 'all';
+  const status = options.status || 'all';
 
   // 1. Fetch Paginated Data from MongoDB only if configured
   const [mongoMoviesPaged, mongoTVPaged, counts] = isMongoConfigured()
     ? await Promise.all([
-        getPaginatedMongoMovies({ page: moviePage, limit, search }),
-        getPaginatedMongoTVShows({ page: tvPage, limit, search }),
+        getPaginatedMongoMovies({ page: moviePage, limit, search, sort, language, status }),
+        getPaginatedMongoTVShows({ page: tvPage, limit, search, sort, language, status }),
         getMongoContentCounts(),
       ])
     : [
@@ -427,7 +433,7 @@ export async function fetchPaginatedAdminContent(
   }
 
   if (rawMovies.length === 0 && localDiskMovies.length > 0) {
-    let filtered = localDiskMovies;
+    let filtered = [...localDiskMovies];
     if (search) {
       filtered = filtered.filter(
         (m) =>
@@ -435,6 +441,32 @@ export async function fetchPaginatedAdminContent(
           String(m.frontmatter.tmdb_id || '').includes(search)
       );
     }
+    if (language && language !== 'all') {
+      filtered = filtered.filter((m) => (m.frontmatter.language || 'ID').toUpperCase() === language.toUpperCase());
+    }
+    if (status === 'trending') {
+      filtered = filtered.filter((m) => Boolean(m.frontmatter.trending));
+    } else if (status === 'featured') {
+      filtered = filtered.filter((m) => Boolean(m.frontmatter.featured));
+    }
+
+    if (sort === 'oldest') {
+      filtered.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    } else if (sort === 'rating') {
+      filtered.sort((a, b) => Number(b.frontmatter.rating || 0) - Number(a.frontmatter.rating || 0));
+    } else if (sort === 'title') {
+      filtered.sort((a, b) => (a.frontmatter.title || a.slug).localeCompare(b.frontmatter.title || b.slug));
+    } else if (sort === 'weight') {
+      filtered.sort((a, b) => {
+        const wA = a.frontmatter.weight !== undefined ? Number(a.frontmatter.weight) : 999999;
+        const wB = b.frontmatter.weight !== undefined ? Number(b.frontmatter.weight) : 999999;
+        return wA - wB;
+      });
+    } else {
+      // newest
+      filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    }
+
     totalMovies = filtered.length;
     totalMoviePages = Math.max(1, Math.ceil(totalMovies / limit));
     totalAllMoviesCount = localDiskMovies.length;
@@ -496,7 +528,7 @@ export async function fetchPaginatedAdminContent(
   }
 
   if (rawTvShows.length === 0 && localDiskTVShows.length > 0) {
-    let filtered = localDiskTVShows;
+    let filtered = [...localDiskTVShows];
     if (search) {
       filtered = filtered.filter(
         (s) =>
@@ -504,6 +536,32 @@ export async function fetchPaginatedAdminContent(
           String(s.indexFrontmatter.tmdb_id || '').includes(search)
       );
     }
+    if (language && language !== 'all') {
+      filtered = filtered.filter((s) => (s.indexFrontmatter.language || 'ID').toUpperCase() === language.toUpperCase());
+    }
+    if (status === 'trending') {
+      filtered = filtered.filter((s) => Boolean(s.indexFrontmatter.trending));
+    } else if (status === 'featured') {
+      filtered = filtered.filter((s) => Boolean(s.indexFrontmatter.featured));
+    }
+
+    if (sort === 'oldest') {
+      filtered.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    } else if (sort === 'rating') {
+      filtered.sort((a, b) => Number(b.indexFrontmatter.rating || 0) - Number(a.indexFrontmatter.rating || 0));
+    } else if (sort === 'title') {
+      filtered.sort((a, b) => (a.indexFrontmatter.title || a.showSlug).localeCompare(b.indexFrontmatter.title || b.showSlug));
+    } else if (sort === 'weight') {
+      filtered.sort((a, b) => {
+        const wA = a.indexFrontmatter.weight !== undefined ? Number(a.indexFrontmatter.weight) : 999999;
+        const wB = b.indexFrontmatter.weight !== undefined ? Number(b.indexFrontmatter.weight) : 999999;
+        return wA - wB;
+      });
+    } else {
+      // newest
+      filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    }
+
     totalTvShows = filtered.length;
     totalTvPages = Math.max(1, Math.ceil(totalTvShows / limit));
     totalAllTvShowsCount = localDiskTVShows.length;

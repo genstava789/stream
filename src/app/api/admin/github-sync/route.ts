@@ -110,7 +110,8 @@ export async function POST(request: NextRequest) {
     job.finishedAt = Date.now();
     job.syncedCount = result.syncedCount;
     job.commitSha = result.commitSha || null;
-    job.message = `Berhasil! ${result.syncedCount} file dipush ke repository '${result.repo}'.`;
+    const createdNotice = (result as any).createdRepo ? ' (Repositori baru berhasil dibuat otomatis di GitHub)' : '';
+    job.message = `Berhasil! ${result.syncedCount} file dipush ke repository '${result.repo}'${createdNotice}.`;
 
     return NextResponse.json({
       success: true,
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
       syncedCount: result.syncedCount,
       commitSha: result.commitSha,
       repo: result.repo,
+      createdRepo: Boolean((result as any).createdRepo),
     });
   } catch (error: any) {
     console.error('[API github-sync POST] Error:', error);

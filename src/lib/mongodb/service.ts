@@ -15,6 +15,7 @@ import {
   GitHubOptions,
 } from '@/lib/githubStorage';
 import { memoryCache } from '@/lib/cache';
+import { STATIC_MOVIE_FILES, STATIC_TV_FILES } from '@/lib/staticContentRegistry';
 
 const SETTINGS_COLLECTION = 'admin_settings';
 
@@ -376,6 +377,9 @@ export interface MongoPaginationOptions {
   page?: number;
   limit?: number;
   search?: string;
+  sort?: 'newest' | 'oldest' | 'rating' | 'title' | 'weight';
+  language?: string;
+  status?: 'all' | 'trending' | 'featured' | string;
 }
 
 export async function getPaginatedMongoMovies(
@@ -405,11 +409,35 @@ export async function getPaginatedMongoMovies(
           ];
         }
 
+        if (options.language && options.language !== 'all') {
+          filter.language = options.language.toUpperCase().trim();
+        }
+
+        if (options.status === 'trending') {
+          filter.trending = true;
+        } else if (options.status === 'featured') {
+          filter.featured = true;
+        }
+
+        let sortQuery: any = { updatedAt: -1, createdAt: -1 };
+        if (options.sort === 'oldest') {
+          sortQuery = { updatedAt: 1, createdAt: 1 };
+        } else if (options.sort === 'rating') {
+          sortQuery = { rating: -1, updatedAt: -1 };
+        } else if (options.sort === 'title') {
+          sortQuery = { title: 1, slug: 1 };
+        } else if (options.sort === 'weight') {
+          sortQuery = { weight: 1, updatedAt: -1 };
+        } else {
+          // 'newest' default
+          sortQuery = { updatedAt: -1, createdAt: -1 };
+        }
+
         const [total, items] = await Promise.all([
           movies.countDocuments(filter),
           movies
             .find(filter)
-            .sort({ updatedAt: -1, createdAt: -1 })
+            .sort(sortQuery)
             .skip(skip)
             .limit(limit)
             .toArray(),
@@ -571,11 +599,35 @@ export async function getPaginatedMongoTVShows(
           ];
         }
 
+        if (options.language && options.language !== 'all') {
+          filter.language = options.language.toUpperCase().trim();
+        }
+
+        if (options.status === 'trending') {
+          filter.trending = true;
+        } else if (options.status === 'featured') {
+          filter.featured = true;
+        }
+
+        let sortQuery: any = { updatedAt: -1, createdAt: -1 };
+        if (options.sort === 'oldest') {
+          sortQuery = { updatedAt: 1, createdAt: 1 };
+        } else if (options.sort === 'rating') {
+          sortQuery = { rating: -1, updatedAt: -1 };
+        } else if (options.sort === 'title') {
+          sortQuery = { title: 1, showSlug: 1 };
+        } else if (options.sort === 'weight') {
+          sortQuery = { weight: 1, updatedAt: -1 };
+        } else {
+          // 'newest' default
+          sortQuery = { updatedAt: -1, createdAt: -1 };
+        }
+
         const [total, shows] = await Promise.all([
           tvShows.countDocuments(filter),
           tvShows
             .find(filter)
-            .sort({ updatedAt: -1, createdAt: -1 })
+            .sort(sortQuery)
             .skip(skip)
             .limit(limit)
             .toArray(),
@@ -872,8 +924,12 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     if (m.featured) frontmatter.featured = true;
     if (m.trending) frontmatter.trending = true;
     if (m.language) frontmatter.language = m.language;
+    if (m.weight !== undefined && m.weight !== null) frontmatter.weight = m.weight;
     if (m.subtitles) frontmatter.subtitles = m.subtitles;
     if (m.duration) frontmatter.duration = m.duration;
+    if (m.createdAt) frontmatter.createdAt = m.createdAt;
+    if (m.updatedAt) frontmatter.updatedAt = m.updatedAt;
+    frontmatter.date = new Date(m.createdAt || m.updatedAt || Date.now()).toISOString();
 
     const content = serializeTinaMovie(frontmatter, m.content || '');
     filesMap.set(relPath, content);
@@ -892,6 +948,10 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     if (s.featured) indexFrontmatter.featured = true;
     if (s.trending) indexFrontmatter.trending = true;
     if (s.language) indexFrontmatter.language = s.language;
+    if (s.weight !== undefined && s.weight !== null) indexFrontmatter.weight = s.weight;
+    if (s.createdAt) indexFrontmatter.createdAt = s.createdAt;
+    if (s.updatedAt) indexFrontmatter.updatedAt = s.updatedAt;
+    indexFrontmatter.date = new Date(s.createdAt || s.updatedAt || Date.now()).toISOString();
 
     const indexContent = serializeTinaTVShow(indexFrontmatter, s.content || '');
     filesMap.set(indexPath, indexContent);
@@ -908,6 +968,9 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     if (ep.rating !== undefined && ep.rating !== null) epFrontmatter.rating = ep.rating;
     if (ep.duration) epFrontmatter.duration = ep.duration;
     if (ep.subtitles) epFrontmatter.subtitles = ep.subtitles;
+    if (ep.createdAt) epFrontmatter.createdAt = ep.createdAt;
+    if (ep.updatedAt) epFrontmatter.updatedAt = ep.updatedAt;
+    epFrontmatter.date = new Date(ep.createdAt || ep.updatedAt || Date.now()).toISOString();
 
     const epContent = serializeTinaTVEpisode(epFrontmatter, ep.content || '');
     filesMap.set(epPath, epContent);
@@ -917,6 +980,10 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     path: filePath,
     content,
   }));
+
+  if (filesArray.length === 0) {
+    throw new Error('Tidak ada data konten di MongoDB untuk di-export ke repository GitHub.');
+  }
 
   // 4. Check for orphan/deleted files on GitHub repository that are no longer in MongoDB
   try {
@@ -951,6 +1018,10 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     ghConfig
   );
 
+  if (res.syncedCount === 0) {
+    throw new Error(`Tidak ada file yang berhasil di-push ke repository '${owner}/${repo}'. Pastikan token memiliki izin 'repo'.`);
+  }
+
   invalidateAllMongoCaches();
 
   // Save lastExportAt timestamp in settings
@@ -959,13 +1030,20 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
     lastSyncedCount: res.syncedCount,
   });
 
-  return { success: true, syncedCount: res.syncedCount, commitSha: res.commitSha, repo: `${owner}/${repo}` };
+  return {
+    success: true,
+    syncedCount: res.syncedCount,
+    commitSha: res.commitSha,
+    repo: `${owner}/${repo}`,
+    createdRepo: res.createdRepo,
+  };
 }
 
 /**
  * Bulk imports all Markdown files from GitHub Content Repository into MongoDB.
  * Uses getGitHubTree to fetch repo structure in 1 call, fetches blobs in concurrent chunks of 15,
- * and executes MongoDB bulkWrite (unordered upserts) for maximum speed (< 3s).
+ * preserves existing timestamps so newly created CMS content is never displaced,
+ * and updates local disk + in-memory static registry for immediate synchronization.
  */
 export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
   success: boolean;
@@ -1046,15 +1124,36 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
 
   const now = Date.now();
 
+  // 1b. Fetch existing movies, shows, and episodes from MongoDB to preserve existing timestamps & newly created content
+  const [existingMovies, existingShows, existingEps] = await Promise.all([
+    movies.find({}).project({ slug: 1, createdAt: 1, updatedAt: 1 }).toArray(),
+    tvShows.find({}).project({ showSlug: 1, createdAt: 1, updatedAt: 1 }).toArray(),
+    episodes.find({}).project({ showSlug: 1, seasonFolder: 1, episode: 1, createdAt: 1, updatedAt: 1 }).toArray(),
+  ]);
+
+  const existingMovieMap = new Map(existingMovies.map((m) => [m.slug, m]));
+  const existingShowMap = new Map(existingShows.map((s) => [s.showSlug, s]));
+  const existingEpMap = new Map(
+    existingEps.map((e) => [`${e.showSlug}/${e.seasonFolder}/${e.episode}`, e])
+  );
+
   // 2. Fetch and prepare Movies
   const fetchedMovies = await fetchBlobContents(movieBlobs);
   const movieOps: any[] = [];
-  for (const m of fetchedMovies) {
+  for (let i = 0; i < fetchedMovies.length; i++) {
+    const m = fetchedMovies[i];
     if (!m.content) continue;
     try {
       const parsed = matter(m.content);
       const fm = parsed.data || {};
       const slug = m.path.replace(/^video\//, '').replace(/\.(md|markdown)$/i, '');
+      const existing = existingMovieMap.get(slug);
+
+      const parsedCreatedAt = Number(fm.createdAt) || (fm.date ? new Date(fm.date).getTime() : 0);
+      const parsedUpdatedAt = Number(fm.updatedAt) || parsedCreatedAt;
+      // Historical fallback ensures older backup items don't jump ahead of newly created CMS items
+      const fallbackTime = now - 86400000 - (i * 1000);
+
       const doc: MongoMovie = {
         slug,
         tmdb_id: Number(fm.tmdb_id) || 0,
@@ -1070,9 +1169,10 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
         subtitles: String(fm.subtitles || '').trim(),
         duration: String(fm.duration || '').trim(),
         content: parsed.content || '',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: existing?.createdAt || parsedCreatedAt || fallbackTime,
+        updatedAt: parsedUpdatedAt || existing?.updatedAt || fallbackTime,
       };
+
       movieOps.push({
         updateOne: {
           filter: { slug },
@@ -1080,6 +1180,20 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
           upsert: true,
         },
       });
+
+      // Write to local disk & in-memory static registry if available
+      try {
+        const fullDiskPath = path.join(process.cwd(), m.path);
+        const dir = path.dirname(fullDiskPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(fullDiskPath, m.content, 'utf8');
+      } catch {}
+
+      if (typeof STATIC_MOVIE_FILES === 'object') {
+        STATIC_MOVIE_FILES[m.path] = m.content;
+        STATIC_MOVIE_FILES[m.path.replace(/\//g, '\\')] = m.content;
+        STATIC_MOVIE_FILES[m.path.replace(/\\/g, '/')] = m.content;
+      }
     } catch (parseErr) {
       console.warn(`[syncGitHubToMongoDB] Error parsing movie ${m.path}:`, parseErr);
     }
@@ -1088,13 +1202,20 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
   // 3. Fetch and prepare TV Shows
   const fetchedTvIndex = await fetchBlobContents(tvIndexBlobs);
   const showOps: any[] = [];
-  for (const s of fetchedTvIndex) {
+  for (let i = 0; i < fetchedTvIndex.length; i++) {
+    const s = fetchedTvIndex[i];
     if (!s.content) continue;
     try {
       const parsed = matter(s.content);
       const fm = parsed.data || {};
       const parts = s.path.split('/');
       const showSlug = parts[1] || 'unknown';
+      const existing = existingShowMap.get(showSlug);
+
+      const parsedCreatedAt = Number(fm.createdAt) || (fm.date ? new Date(fm.date).getTime() : 0);
+      const parsedUpdatedAt = Number(fm.updatedAt) || parsedCreatedAt;
+      const fallbackTime = now - 86400000 - (i * 1000);
+
       const doc: MongoTVShow = {
         showSlug,
         tmdb_id: Number(fm.tmdb_id) || 0,
@@ -1107,9 +1228,10 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
         language: String(fm.language || 'ID').toUpperCase().trim(),
         weight: fm.weight !== undefined && fm.weight !== null ? Number(fm.weight) : undefined,
         content: parsed.content || '',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: existing?.createdAt || parsedCreatedAt || fallbackTime,
+        updatedAt: parsedUpdatedAt || existing?.updatedAt || fallbackTime,
       };
+
       showOps.push({
         updateOne: {
           filter: { showSlug },
@@ -1117,6 +1239,20 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
           upsert: true,
         },
       });
+
+      // Write to local disk & in-memory static registry if available
+      try {
+        const fullDiskPath = path.join(process.cwd(), s.path);
+        const dir = path.dirname(fullDiskPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(fullDiskPath, s.content, 'utf8');
+      } catch {}
+
+      if (typeof STATIC_TV_FILES === 'object') {
+        STATIC_TV_FILES[s.path] = s.content;
+        STATIC_TV_FILES[s.path.replace(/\//g, '\\')] = s.content;
+        STATIC_TV_FILES[s.path.replace(/\\/g, '/')] = s.content;
+      }
     } catch (parseErr) {
       console.warn(`[syncGitHubToMongoDB] Error parsing TV show ${s.path}:`, parseErr);
     }
@@ -1125,7 +1261,8 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
   // 4. Fetch and prepare TV Episodes
   const fetchedEpisodes = await fetchBlobContents(episodeBlobs);
   const episodeOps: any[] = [];
-  for (const ep of fetchedEpisodes) {
+  for (let i = 0; i < fetchedEpisodes.length; i++) {
+    const ep = fetchedEpisodes[i];
     if (!ep.content) continue;
     try {
       const parsed = matter(ep.content);
@@ -1135,6 +1272,11 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
       const seasonFolder = parts.length > 3 ? parts[2].toLowerCase().trim() : 's1';
       const rawEp = parts[parts.length - 1].replace(/\.(md|markdown)$/i, '').trim();
       const cleanEp = rawEp.toLowerCase().startsWith('e') ? rawEp.toLowerCase() : `e${rawEp.replace(/\D/g, '') || '1'}`;
+      const existing = existingEpMap.get(`${showSlug}/${seasonFolder}/${cleanEp}`);
+
+      const parsedCreatedAt = Number(fm.createdAt) || (fm.date ? new Date(fm.date).getTime() : 0);
+      const parsedUpdatedAt = Number(fm.updatedAt) || parsedCreatedAt;
+      const fallbackTime = now - 86400000 - (i * 1000);
 
       const epDoc: MongoTVEpisode = {
         showSlug,
@@ -1149,9 +1291,10 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
         duration: String(fm.duration || '').trim(),
         subtitles: String(fm.subtitles || '').trim(),
         content: parsed.content || '',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: existing?.createdAt || parsedCreatedAt || fallbackTime,
+        updatedAt: parsedUpdatedAt || existing?.updatedAt || fallbackTime,
       };
+
       episodeOps.push({
         updateOne: {
           filter: { showSlug, seasonFolder, episode: cleanEp },
@@ -1159,6 +1302,20 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
           upsert: true,
         },
       });
+
+      // Write to local disk & in-memory static registry if available
+      try {
+        const fullDiskPath = path.join(process.cwd(), ep.path);
+        const dir = path.dirname(fullDiskPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(fullDiskPath, ep.content, 'utf8');
+      } catch {}
+
+      if (typeof STATIC_TV_FILES === 'object') {
+        STATIC_TV_FILES[ep.path] = ep.content;
+        STATIC_TV_FILES[ep.path.replace(/\//g, '\\')] = ep.content;
+        STATIC_TV_FILES[ep.path.replace(/\\/g, '/')] = ep.content;
+      }
     } catch (parseErr) {
       console.warn(`[syncGitHubToMongoDB] Error parsing TV episode ${ep.path}:`, parseErr);
     }

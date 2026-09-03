@@ -135,12 +135,17 @@ export function useAdminData() {
     return h;
   }, [ghToken, ghOwner, ghRepo, ghBranch]);
 
+  // Filter & Sort state
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'rating' | 'title' | 'weight'>('newest');
+  const [filterLanguage, setFilterLanguage] = useState<'all' | 'ID' | 'KR' | 'EN' | 'JP' | 'TH' | 'CN'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'trending' | 'featured'>('all');
+
   // Fetch paginated admin content
   const fetchContent = useCallback(
     async (options: { silent?: boolean; customMoviePage?: number; customTvPage?: number; force?: boolean } = {}) => {
       const mPage = options.customMoviePage !== undefined ? options.customMoviePage : moviePage;
       const tPage = options.customTvPage !== undefined ? options.customTvPage : tvPage;
-      const cacheKey = `${mPage}_${tPage}_${debouncedSearch}_${ITEMS_PER_PAGE}`;
+      const cacheKey = `${mPage}_${tPage}_${debouncedSearch}_${sortOrder}_${filterLanguage}_${filterStatus}_${ITEMS_PER_PAGE}`;
 
       if (options.force) {
         adminClientCache.clear();
@@ -179,6 +184,9 @@ export function useAdminData() {
           tvPage: String(tPage),
           search: debouncedSearch,
           limit: String(ITEMS_PER_PAGE),
+          sort: sortOrder,
+          language: filterLanguage,
+          status: filterStatus,
         });
 
         const res = await fetch(`/api/admin/content?${queryParams.toString()}`, {
@@ -214,13 +222,13 @@ export function useAdminData() {
         setIsInitialLoad(false);
       }
     },
-    [getHeaders, moviePage, tvPage, debouncedSearch, isInitialLoad, showToast]
+    [getHeaders, moviePage, tvPage, debouncedSearch, sortOrder, filterLanguage, filterStatus, isInitialLoad, showToast]
   );
 
   const handleMoviePageChange = useCallback(
     (newPage: number) => {
       setMoviePage(newPage);
-      const cacheKey = `${newPage}_${tvPage}_${debouncedSearch}_${ITEMS_PER_PAGE}`;
+      const cacheKey = `${newPage}_${tvPage}_${debouncedSearch}_${sortOrder}_${filterLanguage}_${filterStatus}_${ITEMS_PER_PAGE}`;
       if (adminClientCache.has(cacheKey)) {
         const cached = adminClientCache.get(cacheKey);
         setMovies(cached.movies || []);
@@ -232,13 +240,13 @@ export function useAdminData() {
         fetchContent({ customMoviePage: newPage });
       }
     },
-    [tvPage, debouncedSearch, fetchContent]
+    [tvPage, debouncedSearch, sortOrder, filterLanguage, filterStatus, fetchContent]
   );
 
   const handleTvPageChange = useCallback(
     (newPage: number) => {
       setTvPage(newPage);
-      const cacheKey = `${moviePage}_${newPage}_${debouncedSearch}_${ITEMS_PER_PAGE}`;
+      const cacheKey = `${moviePage}_${newPage}_${debouncedSearch}_${sortOrder}_${filterLanguage}_${filterStatus}_${ITEMS_PER_PAGE}`;
       if (adminClientCache.has(cacheKey)) {
         const cached = adminClientCache.get(cacheKey);
         setTvShows(cached.tvShows || []);
@@ -250,86 +258,28 @@ export function useAdminData() {
         fetchContent({ customTvPage: newPage });
       }
     },
-    [moviePage, debouncedSearch, fetchContent]
+    [moviePage, debouncedSearch, sortOrder, filterLanguage, filterStatus, fetchContent]
   );
 
   useEffect(() => {
     fetchContent();
   }, [fetchContent]);
 
-  // Filter & Sort state
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'rating' | 'title' | 'weight'>('newest');
-  const [filterLanguage, setFilterLanguage] = useState<'all' | 'ID' | 'KR' | 'EN' | 'JP' | 'TH' | 'CN'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'trending' | 'featured'>('all');
+  // When sorting or filtering changes, reset to page 1 and fetch from server
+  useEffect(() => {
+    setMoviePage(1);
+    setTvPage(1);
+    fetchContent({ customMoviePage: 1, customTvPage: 1 });
+  }, [sortOrder, filterLanguage, filterStatus]);
 
   // Handle instant, non-blocking tab switch
   const handleTabSwitch = useCallback((tab: 'movies' | 'tv') => {
     setActiveTab(tab);
   }, []);
 
-  const processedMovies = useMemo(() => {
-    let list = [...movies];
-    // 1. Filter by language
-    if (filterLanguage !== 'all') {
-      list = list.filter((m) => (m.frontmatter?.language || 'ID').toUpperCase() === filterLanguage);
-    }
-    // 2. Filter by status
-    if (filterStatus === 'trending') {
-      list = list.filter((m) => Boolean(m.frontmatter?.trending));
-    } else if (filterStatus === 'featured') {
-      list = list.filter((m) => Boolean(m.frontmatter?.featured));
-    }
-    // 3. Sort
-    if (sortOrder === 'oldest') {
-      list.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
-    } else if (sortOrder === 'rating') {
-      list.sort((a, b) => Number(b.frontmatter?.rating || b.rating || 0) - Number(a.frontmatter?.rating || a.rating || 0));
-    } else if (sortOrder === 'title') {
-      list.sort((a, b) => (a.displayTitle || a.frontmatter?.title || '').localeCompare(b.displayTitle || b.frontmatter?.title || ''));
-    } else if (sortOrder === 'weight') {
-      list.sort((a, b) => {
-        const wA = a.frontmatter?.weight !== undefined ? Number(a.frontmatter.weight) : 999999;
-        const wB = b.frontmatter?.weight !== undefined ? Number(b.frontmatter.weight) : 999999;
-        return wA - wB;
-      });
-    } else {
-      // newest
-      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    }
-    return list;
-  }, [movies, filterLanguage, filterStatus, sortOrder]);
-
-  const processedTvShows = useMemo(() => {
-    let list = [...tvShows];
-    // 1. Filter by language
-    if (filterLanguage !== 'all') {
-      list = list.filter((s) => (s.frontmatter?.language || 'ID').toUpperCase() === filterLanguage);
-    }
-    // 2. Filter by status
-    if (filterStatus === 'trending') {
-      list = list.filter((s) => Boolean(s.frontmatter?.trending));
-    } else if (filterStatus === 'featured') {
-      list = list.filter((s) => Boolean(s.frontmatter?.featured));
-    }
-    // 3. Sort
-    if (sortOrder === 'oldest') {
-      list.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
-    } else if (sortOrder === 'rating') {
-      list.sort((a, b) => Number(b.frontmatter?.rating || b.rating || 0) - Number(a.frontmatter?.rating || a.rating || 0));
-    } else if (sortOrder === 'title') {
-      list.sort((a, b) => (a.displayTitle || a.frontmatter?.title || '').localeCompare(b.displayTitle || b.frontmatter?.title || ''));
-    } else if (sortOrder === 'weight') {
-      list.sort((a, b) => {
-        const wA = a.frontmatter?.weight !== undefined ? Number(a.frontmatter.weight) : 999999;
-        const wB = b.frontmatter?.weight !== undefined ? Number(b.frontmatter.weight) : 999999;
-        return wA - wB;
-      });
-    } else {
-      // newest
-      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    }
-    return list;
-  }, [tvShows, filterLanguage, filterStatus, sortOrder]);
+  // Server-side sorted and filtered dataset for full database accuracy
+  const processedMovies = movies;
+  const processedTvShows = tvShows;
 
   const paginatedMovies = processedMovies;
   const paginatedTvShows = processedTvShows;

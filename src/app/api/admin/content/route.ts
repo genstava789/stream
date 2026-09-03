@@ -21,6 +21,9 @@ export async function GET(request: NextRequest) {
     const tvPage = Math.max(1, parseInt(searchParams.get('tvPage') || searchParams.get('page') || '1', 10));
     const search = searchParams.get('search') || '';
     const limit = Math.max(1, parseInt(searchParams.get('limit') || '7', 10));
+    const sort = (searchParams.get('sort') as any) || 'newest';
+    const language = searchParams.get('language') || 'all';
+    const status = searchParams.get('status') || 'all';
 
     const data = await fetchPaginatedAdminContent(ghConfig, {
       tab,
@@ -28,6 +31,9 @@ export async function GET(request: NextRequest) {
       tvPage,
       search,
       limit,
+      sort,
+      language,
+      status,
     });
     return NextResponse.json(data);
   } catch (error: any) {
