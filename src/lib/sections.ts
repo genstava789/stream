@@ -26,22 +26,8 @@ export interface ResolvedSection {
   seeAllHref?: string;
 }
 
-/**
- * Normalizes language codes for strict comparison (e.g. "ID", "id", "ind" -> "ID", "KR", "ko", "kor" -> "KR")
- */
-function normalizeLangCode(code?: string): string {
-  if (!code) return '';
-  const clean = code.trim().toUpperCase();
-  if (clean === 'ID' || clean === 'IND' || clean === 'INDONESIA') return 'ID';
-  if (clean === 'MS' || clean === 'MY' || clean === 'MALAY' || clean === 'MELAYU') return 'MS';
-  if (clean === 'KR' || clean === 'KO' || clean === 'KOR' || clean === 'KOREA') return 'KR';
-  if (clean === 'EN' || clean === 'ENG' || clean === 'US' || clean === 'GB') return 'EN';
-  if (clean === 'ANIME' || clean === 'JP_ANIME' || clean === 'JA_ANIME' || clean === 'JAPAN_ANIME') return 'ANIME';
-  if (clean === 'JP' || clean === 'JA' || clean === 'JPN' || clean === 'JAPAN') return 'JP';
-  if (clean === 'TH' || clean === 'THA' || clean === 'THAILAND') return 'TH';
-  if (clean === 'CN' || clean === 'ZH' || clean === 'CHI' || clean === 'CHINA' || clean === 'MANDARIN') return 'CN';
-  return clean;
-}
+import { normalizeLangCode } from '@/lib/language';
+export { normalizeLangCode };
 
 /**
  * Checks if an item matches the section filter criteria

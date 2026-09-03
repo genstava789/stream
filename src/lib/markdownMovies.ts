@@ -632,7 +632,13 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
           const diskMovies = files
             .map((file) => {
               try {
-                const raw = fs.readFileSync(path.join(CONTENT_DIR, file), 'utf8');
+                const fullPath = path.join(CONTENT_DIR, file);
+                const raw = fs.readFileSync(fullPath, 'utf8');
+                let fileTime = 0;
+                try {
+                  const stat = fs.statSync(fullPath);
+                  fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
+                } catch {}
                 const { data } = matter(raw);
                 return {
                   slug: file.replace(/\.(md|markdown)$/i, ''),
@@ -646,8 +652,8 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
                   trending: Boolean(data.trending),
                   language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                   weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : undefined,
-                  createdAt: 0,
-                  updatedAt: 0,
+                  createdAt: Number(data.createdAt) || fileTime,
+                  updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
                 };
               } catch {
                 return null;
@@ -657,6 +663,23 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
 
           movieDocs = diskMovies.filter((m) => Boolean(m.featured));
         }
+
+        // Sort by weight (smaller = first), then updatedAt (newest first), then createdAt
+        movieDocs.sort((a, b) => {
+          const hasWA = a.weight !== undefined && a.weight !== null && a.weight !== '';
+          const hasWB = b.weight !== undefined && b.weight !== null && b.weight !== '';
+          if (hasWA || hasWB) {
+            const wA = hasWA ? Number(a.weight) : 999999;
+            const wB = hasWB ? Number(b.weight) : 999999;
+            if (wA !== wB) return wA - wB;
+          }
+          const timeB = Number(b.updatedAt) || Number(b.createdAt) || 0;
+          const timeA = Number(a.updatedAt) || Number(a.createdAt) || 0;
+          if (timeB > 0 && timeA > 0 && timeB !== timeA) return timeB - timeA;
+          if (timeB > 0 && timeA === 0) return -1;
+          if (timeA > 0 && timeB === 0) return 1;
+          return 0;
+        });
 
         const mappedItems = await Promise.all(
           movieDocs.map(async (m) => {

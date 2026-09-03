@@ -969,6 +969,11 @@ export async function getAllFeaturedCustomTV(): Promise<FeaturedItem[]> {
                   : null;
                 if (indexPath) {
                   const raw = fs.readFileSync(indexPath, 'utf8');
+                  let fileTime = 0;
+                  try {
+                    const stat = fs.statSync(indexPath);
+                    fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
+                  } catch {}
                   const { data } = matter(raw);
                   return {
                     showSlug: showDir,
@@ -982,8 +987,8 @@ export async function getAllFeaturedCustomTV(): Promise<FeaturedItem[]> {
                     language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                     weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
                     episodes: [],
-                    createdAt: 0,
-                    updatedAt: 0,
+                    createdAt: Number(data.createdAt) || fileTime,
+                    updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
                   };
                 }
               } catch {}
@@ -993,6 +998,23 @@ export async function getAllFeaturedCustomTV(): Promise<FeaturedItem[]> {
 
           showDocs = diskShows.filter((s) => Boolean(s.featured));
         }
+
+        // Sort by weight (smaller = first), then updatedAt (newest first), then createdAt
+        showDocs.sort((a, b) => {
+          const hasWA = a.weight !== undefined && a.weight !== null && a.weight !== '';
+          const hasWB = b.weight !== undefined && b.weight !== null && b.weight !== '';
+          if (hasWA || hasWB) {
+            const wA = hasWA ? Number(a.weight) : 999999;
+            const wB = hasWB ? Number(b.weight) : 999999;
+            if (wA !== wB) return wA - wB;
+          }
+          const timeB = Number(b.updatedAt) || Number(b.createdAt) || 0;
+          const timeA = Number(a.updatedAt) || Number(a.createdAt) || 0;
+          if (timeB > 0 && timeA > 0 && timeB !== timeA) return timeB - timeA;
+          if (timeB > 0 && timeA === 0) return -1;
+          if (timeA > 0 && timeB === 0) return 1;
+          return 0;
+        });
 
         const mappedItems = await Promise.all(
           showDocs.map(async (s) => {

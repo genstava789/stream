@@ -16,6 +16,7 @@ import {
 } from '@/lib/githubStorage';
 import { memoryCache } from '@/lib/cache';
 import { STATIC_MOVIE_FILES, STATIC_TV_FILES } from '@/lib/staticContentRegistry';
+import { normalizeLangCode } from '@/lib/language';
 
 const SETTINGS_COLLECTION = 'admin_settings';
 
@@ -569,7 +570,7 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
     rating: data.rating !== undefined && data.rating !== null ? Number(data.rating) : (existing?.rating || 0),
     featured: data.featured !== undefined ? Boolean(data.featured) : Boolean(existing?.featured),
     trending: data.trending !== undefined ? Boolean(data.trending) : Boolean(existing?.trending),
-    language: data.language !== undefined ? String(data.language).trim().toUpperCase() : (existing?.language || 'ID'),
+    language: data.language !== undefined ? normalizeLangCode(data.language) : (existing?.language || 'ID'),
     weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : existing?.weight,
     subtitles: (data.subtitles !== undefined ? data.subtitles : (existing?.subtitles || '')).trim(),
     duration: (data.duration !== undefined ? data.duration : (existing?.duration || '')).trim(),
@@ -859,7 +860,7 @@ export async function saveMongoTVShow(
     rating: data.rating !== undefined && data.rating !== null ? Number(data.rating) : (existing?.rating || 0),
     featured: data.featured !== undefined ? Boolean(data.featured) : Boolean(existing?.featured),
     trending: data.trending !== undefined ? Boolean(data.trending) : Boolean(existing?.trending),
-    language: data.language !== undefined ? String(data.language).trim().toUpperCase() : (existing?.language || 'ID'),
+    language: data.language !== undefined ? normalizeLangCode(data.language) : (existing?.language || 'ID'),
     weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : existing?.weight,
     content: data.content !== undefined ? data.content : (existing?.content || ''),
     createdAt: existing?.createdAt || data.createdAt || now,

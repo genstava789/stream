@@ -44,6 +44,7 @@ import {
 } from '@/lib/mongodb/service';
 import { deleteRequestsByContent } from '@/lib/mongodb/requestService';
 import { STATIC_MOVIE_FILES, STATIC_TV_FILES } from '@/lib/staticContentRegistry';
+import { normalizeLangCode } from '@/lib/language';
 
 const VIDEO_DIR = path.join(process.cwd(), 'video');
 const TV_DIR = path.join(process.cwd(), 'tv');
@@ -449,7 +450,7 @@ export async function fetchPaginatedAdminContent(
         rating: m.rating,
         featured: m.featured,
         trending: m.trending,
-        language: m.language ? String(m.language).toUpperCase() : 'ID',
+        language: normalizeLangCode(m.language),
         weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
         subtitles: m.subtitles,
         duration: m.duration,
@@ -539,7 +540,7 @@ export async function fetchPaginatedAdminContent(
         rating: s.rating,
         featured: s.featured,
         trending: s.trending,
-        language: s.language ? String(s.language).toUpperCase() : 'ID',
+        language: normalizeLangCode(s.language),
         weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
       },
       indexContent: s.content || '',
@@ -1245,7 +1246,7 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     if (rating !== undefined && rating !== null && rating !== '') frontmatterData.rating = Number(rating);
     if (featured !== undefined) frontmatterData.featured = Boolean(featured);
     if (body.trending !== undefined) frontmatterData.trending = Boolean(body.trending);
-    if (body.language && String(body.language).trim()) frontmatterData.language = String(body.language).trim().toUpperCase();
+    if (body.language && String(body.language).trim()) frontmatterData.language = normalizeLangCode(String(body.language));
     if (body.weight !== undefined && body.weight !== null && body.weight !== '') frontmatterData.weight = Number(body.weight);
     if (subtitles && subtitles.trim()) frontmatterData.subtitles = subtitles.trim();
 
@@ -1375,7 +1376,7 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     if (rating !== undefined && rating !== null && rating !== '') frontmatterData.rating = Number(rating);
     if (featured !== undefined) frontmatterData.featured = Boolean(featured);
     if (body.trending !== undefined) frontmatterData.trending = Boolean(body.trending);
-    if (body.language && String(body.language).trim()) frontmatterData.language = String(body.language).trim().toUpperCase();
+    if (body.language && String(body.language).trim()) frontmatterData.language = normalizeLangCode(String(body.language));
     if (body.weight !== undefined && body.weight !== null && body.weight !== '') frontmatterData.weight = Number(body.weight);
 
     fileContent = serializeTinaTVShow(frontmatterData, content || '');
@@ -1703,7 +1704,7 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
       } else if (key === 'trending') {
         cleanFrontmatter[key] = Boolean(val);
       } else if (key === 'language') {
-        cleanFrontmatter[key] = String(val).trim().toUpperCase();
+        cleanFrontmatter[key] = normalizeLangCode(String(val));
       } else if (key === 'weight') {
         cleanFrontmatter[key] = isNaN(Number(val)) ? undefined : Number(val);
       } else {

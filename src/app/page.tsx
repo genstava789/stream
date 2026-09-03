@@ -6,11 +6,8 @@ import { getEnrichedFeaturedMovies } from '@/lib/featured';
 import { getResolvedSections } from '@/lib/sections';
 import siteConfig from '@/config';
 
-// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier):
-// - Pre-rendered & cached on Vercel Edge CDN for instantaneous loading (<50ms, zero skeleton delay).
-// - Revalidates on-demand when CMS updates content via revalidatePath('/', 'page').
-// - Long fallback (1 hour / 3600s) minimizes serverless lambda invocations to avoid exhausting Free Tier limits.
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function HomePage() {
   const [genresData, featuredItems, sections] = await Promise.all([

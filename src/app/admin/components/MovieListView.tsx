@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { Film, Plus, ExternalLink, Edit2, Trash2, Star, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MovieItem } from '../types';
 import { getMovieUrl } from '@/lib/urls';
+import { getLanguageBadge } from '@/lib/language';
 
 interface MovieListViewProps {
   movies: MovieItem[];
@@ -222,9 +223,17 @@ export const MovieListView: React.FC<MovieListViewProps> = ({
                       <span className="px-2 py-0.5 rounded-md text-[9.5px] sm:text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
                         TMDB {tmdbId || 'N/A'}
                       </span>
-                      <span className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30">
-                        {String(movie.frontmatter.language || 'ID').toUpperCase()}
-                      </span>
+                      {(() => {
+                        const langBadge = getLanguageBadge(movie.frontmatter.language);
+                        return (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-bold ${langBadge.bg} ${langBadge.text} border ${langBadge.border}`}
+                            title={`Bahasa: ${langBadge.label}`}
+                          >
+                            {langBadge.fullBadge}
+                          </span>
+                        );
+                      })()}
                       {weight !== undefined && weight !== null && (
                         <span className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Prioritas Weight">
                           W: {weight}

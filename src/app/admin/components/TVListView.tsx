@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { TVShowItem, TVEpisodeItem } from '../types';
 import { getTVUrl } from '@/lib/urls';
+import { getLanguageBadge } from '@/lib/language';
 
 interface TVListViewProps {
   tvShows: TVShowItem[];
@@ -307,9 +308,17 @@ export const TVListView: React.FC<TVListViewProps> = ({
                       <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-pink-500/10 text-pink-400 border border-pink-500/30">
                         TMDB {tmdbId}
                       </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30">
-                        {String(show.frontmatter.language || 'ID').toUpperCase()}
-                      </span>
+                      {(() => {
+                        const langBadge = getLanguageBadge(show.frontmatter.language);
+                        return (
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold ${langBadge.bg} ${langBadge.text} border ${langBadge.border}`}
+                            title={`Bahasa: ${langBadge.label}`}
+                          >
+                            {langBadge.fullBadge}
+                          </span>
+                        );
+                      })()}
                       {weight !== undefined && weight !== null && (
                         <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Prioritas Weight">
                           W: {weight}

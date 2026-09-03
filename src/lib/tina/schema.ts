@@ -1,5 +1,6 @@
 import matter from 'gray-matter';
 import { cleanVideoUrl, slugify } from '@/lib/urls';
+import { normalizeLangCode } from '@/lib/language';
 
 /**
  * TinaCMS-Aligned TypeScript Types & Serializers
@@ -75,7 +76,7 @@ export function serializeTinaMovie(
     cleanData.trending = Boolean(frontmatter.trending);
   }
   if (frontmatter.language && String(frontmatter.language).trim()) {
-    cleanData.language = String(frontmatter.language).trim().toUpperCase();
+    cleanData.language = normalizeLangCode(String(frontmatter.language));
   }
   if (frontmatter.weight !== undefined && frontmatter.weight !== null && frontmatter.weight !== '') {
     cleanData.weight = Number(frontmatter.weight);
@@ -124,7 +125,7 @@ export function serializeTinaTVShow(
     cleanData.trending = Boolean(frontmatter.trending);
   }
   if (frontmatter.language && String(frontmatter.language).trim()) {
-    cleanData.language = String(frontmatter.language).trim().toUpperCase();
+    cleanData.language = normalizeLangCode(String(frontmatter.language));
   }
   if (frontmatter.weight !== undefined && frontmatter.weight !== null && frontmatter.weight !== '') {
     cleanData.weight = Number(frontmatter.weight);

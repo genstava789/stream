@@ -23,6 +23,7 @@ import { DraftSeason, TMDBPreviewData, MovieItem, TVShowItem } from '../types';
 import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { cleanVideoUrl, isValidVideoUrl, extractTmdbIdAndType } from '@/lib/urls';
+import { normalizeLangCode } from '@/lib/language';
 
 interface TMDBLiveSearchResult {
   id: number;
@@ -863,7 +864,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1.5">Bahasa (Language)</label>
               <select
-                value={formLanguage}
+                value={normalizeLangCode(formLanguage) || 'ID'}
                 onChange={(e) => setFormLanguage(e.target.value)}
                 className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
               >

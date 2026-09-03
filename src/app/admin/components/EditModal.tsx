@@ -20,6 +20,7 @@ import { EditingItemState, TMDBPreviewData, TVShowItem } from '../types';
 import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { extractTmdbIdAndType, cleanVideoUrl, isValidVideoUrl } from '@/lib/urls';
+import { normalizeLangCode } from '@/lib/language';
 
 interface EditableEpisode {
   id: string;
@@ -157,8 +158,8 @@ export const EditModal: React.FC<EditModalProps> = ({
         const data: TMDBPreviewData = await res.json();
         setTmdbPreview(data);
 
-        // Auto-detect and auto-fill language from TMDB
-        if (data.originalLanguage) {
+        // Auto-detect and auto-fill language from TMDB ONLY if not already set on this existing content
+        if (data.originalLanguage && (!editingItem.frontmatter.language || editingItem.frontmatter.language === '')) {
           const l = data.originalLanguage.toLowerCase().trim();
           let detectedLang = 'ID';
           if (l === 'id' || l === 'ind') detectedLang = 'ID';
@@ -593,7 +594,7 @@ export const EditModal: React.FC<EditModalProps> = ({
                       Bahasa (Language)
                     </label>
                     <select
-                      value={editingItem.frontmatter.language || 'ID'}
+                      value={normalizeLangCode(editingItem.frontmatter.language) || 'ID'}
                       onChange={(e) => updateFrontmatter('language', e.target.value)}
                       className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
                     >
