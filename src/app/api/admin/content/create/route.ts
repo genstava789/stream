@@ -6,8 +6,8 @@ export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
     const result = await createAdminContent(body, ghConfig);
     return NextResponse.json(result);
   } catch (error: any) {

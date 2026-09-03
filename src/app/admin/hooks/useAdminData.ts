@@ -42,10 +42,10 @@ export function useAdminData() {
   const [totalAllTvShowsCount, setTotalAllTvShowsCount] = useState(0);
   const [totalEpisodesCount, setTotalEpisodesCount] = useState(0);
 
-  // GitHub Settings
+  // GitHub Settings (Dedicated Content Repository)
   const [ghToken, setGhToken] = useState('');
   const [ghOwner, setGhOwner] = useState('genstava789');
-  const [ghRepo, setGhRepo] = useState('filmes');
+  const [ghRepo, setGhRepo] = useState('filmes-content');
   const [ghBranch, setGhBranch] = useState('main');
 
   // Toasts
@@ -69,30 +69,58 @@ export function useAdminData() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Load GitHub credentials from localStorage
+  // Load GitHub credentials from MongoDB backend and localStorage fallback
   useEffect(() => {
-    try {
-      const savedToken = localStorage.getItem('gh_token') || '';
-      const savedOwner = localStorage.getItem('gh_owner') || 'genstava789';
-      const savedRepo = localStorage.getItem('gh_repo') || 'filmes';
-      const savedBranch = localStorage.getItem('gh_branch') || 'main';
-      if (savedToken) setGhToken(savedToken);
-      if (savedOwner) setGhOwner(savedOwner);
-      if (savedRepo) setGhRepo(savedRepo);
-      if (savedBranch) setGhBranch(savedBranch);
-    } catch {}
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/github-sync', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.settings) {
+            if (data.settings.owner) setGhOwner(data.settings.owner);
+            if (data.settings.repo) setGhRepo(data.settings.repo);
+            if (data.settings.branch) setGhBranch(data.settings.branch);
+          }
+        }
+      } catch {}
+
+      try {
+        const savedToken = localStorage.getItem('gh_token') || '';
+        const savedOwner = localStorage.getItem('gh_owner');
+        const savedRepo = localStorage.getItem('gh_repo');
+        const savedBranch = localStorage.getItem('gh_branch');
+        if (savedToken) setGhToken(savedToken);
+        if (savedOwner) setGhOwner(savedOwner);
+        if (savedRepo && savedRepo !== 'stream') setGhRepo(savedRepo);
+        if (savedBranch) setGhBranch(savedBranch);
+      } catch {}
+    })();
   }, []);
 
-  const saveSettings = useCallback(() => {
+  const saveSettings = useCallback(async () => {
     try {
       localStorage.setItem('gh_token', ghToken.trim());
       localStorage.setItem('gh_owner', ghOwner.trim());
       localStorage.setItem('gh_repo', ghRepo.trim());
       localStorage.setItem('gh_branch', ghBranch.trim());
+
+      // Save to MongoDB backend as well
+      await fetch('/api/admin/github-sync', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          owner: ghOwner.trim(),
+          repo: ghRepo.trim(),
+          branch: ghBranch.trim(),
+          token: ghToken.trim() || undefined,
+        }),
+      });
+
       setIsSettingsOpen(false);
-      showToast('Pengaturan GitHub berhasil disimpan!');
+      showToast('Pengaturan repository konten berhasil disimpan!');
     } catch {
-      showToast('Gagal menyimpan pengaturan ke localStorage', 'error');
+      showToast('Gagal menyimpan pengaturan', 'error');
     }
   }, [ghToken, ghOwner, ghRepo, ghBranch, showToast]);
 
@@ -447,28 +475,74 @@ export function useAdminData() {
     pollSyncStatus();
   }, [pollSyncStatus]);
 
+  const [importingGitHub, setImportingGitHub] = useState(false);
+
   const handleManualSyncToGitHub = async () => {
     setSyncingGitHub(true);
-    showToast('Menyinkronkan konten ke GitHub di background server...');
+    showToast(`Mengirim seluruh konten MongoDB ke repository '${ghOwner}/${ghRepo}'...`);
 
     try {
       const res = await fetch('/api/admin/github-sync', {
         method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify({
+          owner: ghOwner.trim(),
+          repo: ghRepo.trim(),
+          branch: ghBranch.trim(),
+          token: ghToken.trim() || undefined,
+        }),
       });
 
       const result = await res.json();
       if (res.ok) {
-        // Start polling server-side progress
-        setTimeout(pollSyncStatus, 1000);
+        setSyncingGitHub(false);
+        showToast(result.message || `Berhasil dipush! ${result.syncedCount || 0} file tersinkron ke ${result.repo}.`, 'success');
+        fetchContent({ silent: true });
       } else {
         setSyncingGitHub(false);
         if (result.requiresToken) setIsSettingsOpen(true);
-        showToast(result.error || 'Gagal memulai sinkronisasi ke GitHub', 'error');
+        showToast(result.error || 'Gagal menyinkronkan ke GitHub', 'error');
       }
     } catch {
       setSyncingGitHub(false);
       showToast('Koneksi ke API sync gagal', 'error');
+    }
+  };
+
+  const handleImportFromGitHub = async () => {
+    if (!window.confirm(`Tarik dan impor seluruh konten Markdown dari repository '${ghOwner}/${ghRepo}' ke MongoDB? Data di MongoDB akan tersinkronisasi sesuai file repository.`)) {
+      return;
+    }
+
+    setImportingGitHub(true);
+    showToast(`Mengimpor file Markdown dari repository '${ghOwner}/${ghRepo}' ke MongoDB...`);
+
+    try {
+      const res = await fetch('/api/admin/github-sync', {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          owner: ghOwner.trim(),
+          repo: ghRepo.trim(),
+          branch: ghBranch.trim(),
+          token: ghToken.trim() || undefined,
+        }),
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        setImportingGitHub(false);
+        showToast(result.message || `Import sukses! ${result.totalFiles || 0} file diproses.`, 'success');
+        adminClientCache.clear();
+        fetchContent({ force: true });
+      } else {
+        setImportingGitHub(false);
+        if (result.requiresToken) setIsSettingsOpen(true);
+        showToast(result.error || 'Gagal mengimpor dari GitHub', 'error');
+      }
+    } catch {
+      setImportingGitHub(false);
+      showToast('Koneksi ke API import gagal', 'error');
     }
   };
 
@@ -550,5 +624,7 @@ export function useAdminData() {
     handleDeleteConfirm,
     handleManualSyncToGitHub,
     syncingGitHub,
+    handleImportFromGitHub,
+    importingGitHub,
   };
 }

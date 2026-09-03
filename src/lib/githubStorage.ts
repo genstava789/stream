@@ -4,7 +4,7 @@
  */
 
 const DEFAULT_OWNER = process.env.GITHUB_BACKUP_OWNER || process.env.GITHUB_OWNER || 'genstava789';
-const DEFAULT_REPO = process.env.GITHUB_BACKUP_REPO || process.env.GITHUB_REPO || 'filmes-content';
+const DEFAULT_REPO = process.env.GITHUB_BACKUP_REPO || (process.env.GITHUB_REPO !== 'stream' ? process.env.GITHUB_REPO : null) || 'filmes-content';
 const DEFAULT_BRANCH = process.env.GITHUB_BACKUP_BRANCH || process.env.GITHUB_BRANCH || 'main';
 
 export interface GitHubOptions {
@@ -14,8 +14,64 @@ export interface GitHubOptions {
   token?: string | null;
 }
 
+/**
+ * Sanitizes and splits user-provided GitHub repository input.
+ * Handles:
+ * - Full URLs: https://github.com/owner/repo or https://github.com/owner/repo.git
+ * - Slugs: owner/repo
+ * - Clean names: repo (uses defaultOwner)
+ */
+export function parseGitHubRepoInput(
+  input?: string,
+  defaultOwner: string = 'genstava789'
+): { owner: string; repo: string } {
+  if (!input || typeof input !== 'string' || !input.trim()) {
+    return { owner: defaultOwner, repo: 'filmes-content' };
+  }
+
+  let clean = input.trim();
+  // Remove git+https:// or https:// or http:// or github.com/
+  clean = clean.replace(/^(?:git\+)?https?:\/\/github\.com\//i, '');
+  clean = clean.replace(/^github\.com\//i, '');
+  clean = clean.replace(/\.git$/i, '');
+  clean = clean.replace(/^\/+|\/+$/g, '');
+
+  if (clean.includes('/')) {
+    const parts = clean.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      return { owner: parts[0], repo: parts[1] };
+    }
+  }
+
+  return { owner: defaultOwner, repo: clean || 'filmes-content' };
+}
+
 export function getEffectiveToken(customToken?: string | null): string | null {
   return customToken || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null;
+}
+
+/**
+ * Resolves and protects GitHub options to ensure content is never pushed to the code repository.
+ */
+export function resolveGitHubOptions(options: GitHubOptions = {}): {
+  owner: string;
+  repo: string;
+  branch: string;
+  token: string | null;
+} {
+  const token = getEffectiveToken(options.token);
+  const parsed = parseGitHubRepoInput(options.repo, options.owner || DEFAULT_OWNER);
+  const owner = parsed.owner || options.owner || DEFAULT_OWNER;
+  let repo = parsed.repo || DEFAULT_REPO;
+  const branch = (options.branch || DEFAULT_BRANCH).trim() || 'main';
+
+  // Explicit safety block: never push content files to source code repository ('stream')
+  if (repo.toLowerCase() === 'stream' && !process.env.ALLOW_PUSH_TO_STREAM_REPO) {
+    console.warn(`[githubStorage] Attempted to push content to main code repository '${repo}'. Diverting to 'filmes-content' to protect codebase.`);
+    repo = process.env.GITHUB_BACKUP_REPO || 'filmes-content';
+  }
+
+  return { owner, repo, branch, token };
 }
 
 /**
@@ -23,14 +79,10 @@ export function getEffectiveToken(customToken?: string | null): string | null {
  * Always fetches fresh content without caching to ensure accurate SHA for edits.
  */
 export async function getGitHubFile(filePath: string, options: GitHubOptions = {}) {
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
   if (!token) throw new Error('GitHub token is required on Vercel to access files via API');
 
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
   const cleanPath = filePath.replace(/^\/+/, '');
-
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${cleanPath}?ref=${branch}&_t=${Date.now()}`;
 
   const res = await fetch(url, {
@@ -76,12 +128,9 @@ export async function saveGitHubFile(
   commitMessage: string,
   options: GitHubOptions = {}
 ) {
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
   if (!token) throw new Error('GitHub token is required on Vercel to save content');
 
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
   const cleanPath = filePath.replace(/^\/+/, '');
 
   const putFile = async (currentSha?: string) => {
@@ -189,12 +238,9 @@ export async function deleteGitHubFile(
   commitMessage: string,
   options: GitHubOptions = {}
 ) {
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
   if (!token) throw new Error('GitHub token is required on Vercel to delete content');
 
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
   const cleanPath = filePath.replace(/^\/+/, '');
 
   // 1. Get fresh file SHA
@@ -269,10 +315,7 @@ export async function deleteGitHubFile(
  */
 export async function getGitHubRawFile(filePath: string, options: GitHubOptions = {}): Promise<string | null> {
   const cleanPath = filePath.replace(/^\/+/, '');
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
 
   // 1. Primary: Use GitHub REST API with Accept: application/vnd.github.v3.raw (Bypasses Fastly CDN cache completely)
   try {
@@ -319,10 +362,7 @@ export async function getGitHubRawFile(filePath: string, options: GitHubOptions 
  */
 export async function listGitHubDir(dirPath: string, options: GitHubOptions = {}): Promise<string[]> {
   const cleanPath = dirPath.replace(/^\/+/, '');
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',
@@ -359,10 +399,7 @@ export interface GitHubTreeItem {
  * Gets full repository tree (all files and directories) recursively in a single fast API call.
  */
 export async function getGitHubTree(options: GitHubOptions = {}): Promise<GitHubTreeItem[]> {
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',
@@ -392,9 +429,7 @@ export async function getGitHubTree(options: GitHubOptions = {}): Promise<GitHub
  * Reads a git blob by its SHA directly from GitHub API.
  */
 export async function getGitHubBlob(sha: string, options: GitHubOptions = {}): Promise<string | null> {
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, token } = resolveGitHubOptions(options);
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3.raw',
@@ -424,12 +459,8 @@ export async function commitMultipleGitHubFiles(
   commitMessage: string,
   options: GitHubOptions = {}
 ): Promise<{ success: boolean; commitSha: string; syncedCount: number }> {
-  const token = getEffectiveToken(options.token);
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
   if (!token) throw new Error('GitHub token is required to commit to GitHub repository');
-
-  const owner = options.owner || DEFAULT_OWNER;
-  const repo = options.repo || DEFAULT_REPO;
-  const branch = options.branch || DEFAULT_BRANCH;
 
   if (!files || files.length === 0) {
     return { success: true, commitSha: '', syncedCount: 0 };
@@ -443,33 +474,56 @@ export async function commitMultipleGitHubFiles(
   };
 
   try {
-    // 1. Get the latest commit SHA of the target branch
+    // 1. Get the latest commit SHA of the target branch, or initialize empty repository
     const refRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}?_t=${Date.now()}`,
       { headers, cache: 'no-store' }
     );
 
+    let latestCommitSha: string = '';
+    let baseTreeSha: string = '';
+
     if (!refRes.ok) {
-      const err = await refRes.json().catch(() => ({}));
-      throw new Error(`Failed to get branch ref: ${err.message || refRes.statusText}`);
+      if (refRes.status === 404) {
+        // Repository or branch is empty. Initialize branch with a README.md first
+        const initRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/contents/README.md`,
+          {
+            method: 'PUT',
+            headers,
+            cache: 'no-store',
+            body: JSON.stringify({
+              message: 'Initialize content repository',
+              content: Buffer.from(`# Content Storage for LeviStream\nAuto-initialized content repository.\n`, 'utf8').toString('base64'),
+              branch,
+            }),
+          }
+        );
+        if (!initRes.ok) {
+          const initErr = await initRes.json().catch(() => ({}));
+          throw new Error(`Repository '${owner}/${repo}' tidak ditemukan atau token tidak memiliki izin tulis (${initErr.message || initRes.statusText}).`);
+        }
+        const initData = await initRes.json();
+        latestCommitSha = initData.commit.sha;
+        baseTreeSha = initData.commit.tree.sha;
+      } else {
+        const err = await refRes.json().catch(() => ({}));
+        throw new Error(`Failed to get branch ref: ${err.message || refRes.statusText}`);
+      }
+    } else {
+      const refData = await refRes.json();
+      latestCommitSha = refData.object.sha;
+      const commitRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/commits/${latestCommitSha}?_t=${Date.now()}`,
+        { headers, cache: 'no-store' }
+      );
+      if (!commitRes.ok) {
+        const err = await commitRes.json().catch(() => ({}));
+        throw new Error(`Failed to get base commit: ${err.message || commitRes.statusText}`);
+      }
+      const commitData = await commitRes.json();
+      baseTreeSha = commitData.tree.sha;
     }
-
-    const refData = await refRes.json();
-    const latestCommitSha = refData.object.sha;
-
-    // 2. Get the base tree SHA from the latest commit
-    const commitRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/commits/${latestCommitSha}?_t=${Date.now()}`,
-      { headers, cache: 'no-store' }
-    );
-
-    if (!commitRes.ok) {
-      const err = await commitRes.json().catch(() => ({}));
-      throw new Error(`Failed to get base commit: ${err.message || commitRes.statusText}`);
-    }
-
-    const commitData = await commitRes.json();
-    const baseTreeSha = commitData.tree.sha;
 
     // 3. Prepare the tree entries
     const treeEntries = files.map((file) => ({
@@ -567,3 +621,51 @@ export async function commitMultipleGitHubFiles(
     };
   }
 }
+
+/**
+ * Tests connection to the target content repository with current credentials.
+ */
+export async function testGitHubConnection(options: GitHubOptions = {}): Promise<{
+  success: boolean;
+  message: string;
+  repoName: string;
+  isPrivate?: boolean;
+  defaultBranch?: string;
+}> {
+  const { owner, repo, branch, token } = resolveGitHubOptions(options);
+  if (!token) {
+    throw new Error('Token GitHub diperlukan untuk mengetes koneksi.');
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'LeviStream-CMS',
+  };
+
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    headers,
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(`Repository '${owner}/${repo}' tidak ditemukan atau token tidak memiliki akses. Pastikan nama repository benar dan token memiliki izin 'repo'.`);
+    }
+    if (res.status === 401) {
+      throw new Error('Token GitHub tidak valid atau telah kedaluwarsa.');
+    }
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Gagal terhubung ke GitHub (HTTP ${res.status})`);
+  }
+
+  const repoData = await res.json();
+  return {
+    success: true,
+    message: `Terhubung dengan sukses ke repository '${repoData.full_name}'!`,
+    repoName: repoData.full_name,
+    isPrivate: repoData.private,
+    defaultBranch: repoData.default_branch || branch,
+  };
+}
+

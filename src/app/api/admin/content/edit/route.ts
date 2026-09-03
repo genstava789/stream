@@ -6,8 +6,8 @@ export const revalidate = 0;
 
 async function handleEdit(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
     const result = await updateAdminContent(body, ghConfig);
     return NextResponse.json(result);
   } catch (error: any) {

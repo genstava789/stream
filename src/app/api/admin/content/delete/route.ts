@@ -18,16 +18,16 @@ async function handleDelete(request: NextRequest) {
       );
     }
 
-    const ghConfig = getGitHubConfigFromRequest(request);
+    let pathsToDelete: string[] = [];
+    let body: any = {};
     const { searchParams } = new URL(request.url);
     const pathParam = searchParams.get('path');
-    let pathsToDelete: string[] = [];
 
     if (pathParam) {
       pathsToDelete = [pathParam];
     } else {
       try {
-        const body = await request.json().catch(() => ({}));
+        body = await request.json().catch(() => ({}));
         if (Array.isArray(body.paths)) {
           pathsToDelete = body.paths;
         } else if (body.path) {
@@ -35,6 +35,8 @@ async function handleDelete(request: NextRequest) {
         }
       } catch {}
     }
+
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
 
     if (pathsToDelete.length === 0) {
       return NextResponse.json({ error: 'Path parameter or paths array is required' }, { status: 400 });

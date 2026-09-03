@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   CloudUpload,
+  CloudDownload,
   ArrowUpDown,
   Globe,
   Flame,
@@ -46,6 +47,9 @@ interface AdminNavbarProps {
   onClearSelection?: () => void;
   onManualSyncGitHub: () => void;
   syncingGitHub: boolean;
+  onImportGitHub?: () => void;
+  importingGitHub?: boolean;
+  targetRepoName?: string;
 }
 
 export const AdminNavbar: React.FC<AdminNavbarProps> = ({
@@ -73,6 +77,9 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
   onClearSelection,
   onManualSyncGitHub,
   syncingGitHub,
+  onImportGitHub,
+  importingGitHub = false,
+  targetRepoName,
 }) => {
   const isOwner = operatorRole === 'owner';
 
@@ -129,20 +136,37 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
               </div>
             )}
 
-            {/* Manual Push to GitHub Button */}
+            {/* Manual Push to GitHub (Export) Button */}
             <button
               onClick={onManualSyncGitHub}
-              disabled={syncingGitHub}
-              className={`px-3.5 py-2 rounded-xl border text-xs font-extrabold transition-all active:scale-95 flex items-center gap-1.5 shadow-md ${
+              disabled={syncingGitHub || importingGitHub}
+              className={`px-3 py-2 rounded-xl border text-xs font-extrabold transition-all active:scale-95 flex items-center gap-1.5 shadow-md ${
                 syncingGitHub
                   ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 cursor-not-allowed'
                   : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border-purple-400/40 shadow-purple-900/30'
               }`}
-              title="Kirim perubahan Markdown CMS langsung ke GitHub Repository"
+              title={`Export data MongoDB ke repository ${targetRepoName || 'konten'}`}
             >
               <CloudUpload size={14} className={syncingGitHub ? 'animate-bounce' : ''} />
-              <span>{syncingGitHub ? 'Menyinkronkan...' : 'Push ke GitHub'}</span>
+              <span>{syncingGitHub ? 'Mengirim...' : 'Export ke GitHub'}</span>
             </button>
+
+            {/* Manual Import from GitHub Button */}
+            {onImportGitHub && (
+              <button
+                onClick={onImportGitHub}
+                disabled={syncingGitHub || importingGitHub}
+                className={`px-3 py-2 rounded-xl border text-xs font-extrabold transition-all active:scale-95 flex items-center gap-1.5 shadow-md ${
+                  importingGitHub
+                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-700 to-teal-600 hover:from-blue-600 hover:to-teal-500 text-white border-teal-400/40 shadow-teal-900/30'
+                }`}
+                title={`Import file Markdown dari repository ${targetRepoName || 'konten'} ke MongoDB`}
+              >
+                <CloudDownload size={14} className={importingGitHub ? 'animate-spin' : ''} />
+                <span>{importingGitHub ? 'Mengimpor...' : 'Import dari GitHub'}</span>
+              </button>
+            )}
 
             {/* Add Film */}
             <button

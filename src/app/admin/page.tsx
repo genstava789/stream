@@ -295,6 +295,9 @@ export default function AdminPage() {
         onClearSelection={admin.clearSelection}
         onManualSyncGitHub={admin.handleManualSyncToGitHub}
         syncingGitHub={admin.syncingGitHub}
+        onImportGitHub={admin.handleImportFromGitHub}
+        importingGitHub={admin.importingGitHub}
+        targetRepoName={`${admin.ghOwner}/${admin.ghRepo}`}
       />
 
       {/* Content Area */}

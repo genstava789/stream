@@ -9,10 +9,27 @@ import {
   saveGitHubFile,
   commitMultipleGitHubFiles,
   getGitHubTree,
+  getGitHubBlob,
   deleteGitHubFile,
+  resolveGitHubOptions,
   GitHubOptions,
 } from '@/lib/githubStorage';
 import { memoryCache } from '@/lib/cache';
+
+const SETTINGS_COLLECTION = 'admin_settings';
+
+export interface StoredGitHubSettings {
+  _id?: any;
+  type: 'github_backup';
+  owner: string;
+  repo: string;
+  branch: string;
+  token?: string;
+  updatedAt: number;
+  lastExportAt?: number;
+  lastImportAt?: number;
+  lastSyncedCount?: number;
+}
 
 export interface MongoMovie {
   _id?: any;
@@ -89,6 +106,51 @@ async function getCollectionsRaw() {
   const tvShows = db.collection<MongoTVShow>(TV_SHOWS_COLLECTION);
   const episodes = db.collection<MongoTVEpisode>(EPISODES_COLLECTION);
   return { movies, tvShows, episodes };
+}
+
+export async function getStoredGitHubSettings(): Promise<StoredGitHubSettings | null> {
+  if (!isMongoConfigured()) return null;
+  try {
+    const db = await getDatabase();
+    const settings = await db.collection<StoredGitHubSettings>(SETTINGS_COLLECTION).findOne({ type: 'github_backup' });
+    return settings;
+  } catch (err) {
+    console.warn('[getStoredGitHubSettings] Error:', err);
+    return null;
+  }
+}
+
+export async function saveStoredGitHubSettings(
+  data: Partial<StoredGitHubSettings>
+): Promise<StoredGitHubSettings | null> {
+  if (!isMongoConfigured()) return null;
+  try {
+    const db = await getDatabase();
+    const collection = db.collection<StoredGitHubSettings>(SETTINGS_COLLECTION);
+    const existing = await collection.findOne({ type: 'github_backup' });
+
+    const updated: StoredGitHubSettings = {
+      type: 'github_backup',
+      owner: (data.owner || existing?.owner || process.env.GITHUB_BACKUP_OWNER || process.env.GITHUB_OWNER || 'genstava789').trim(),
+      repo: (data.repo || existing?.repo || process.env.GITHUB_BACKUP_REPO || 'filmes-content').trim(),
+      branch: (data.branch || existing?.branch || process.env.GITHUB_BACKUP_BRANCH || 'main').trim(),
+      token: data.token !== undefined ? data.token.trim() : (existing?.token || ''),
+      updatedAt: Date.now(),
+      lastExportAt: data.lastExportAt || existing?.lastExportAt,
+      lastImportAt: data.lastImportAt || existing?.lastImportAt,
+      lastSyncedCount: data.lastSyncedCount !== undefined ? data.lastSyncedCount : existing?.lastSyncedCount,
+    };
+
+    await collection.updateOne(
+      { type: 'github_backup' },
+      { $set: updated },
+      { upsert: true }
+    );
+    return updated;
+  } catch (err) {
+    console.warn('[saveStoredGitHubSettings] Error:', err);
+    return null;
+  }
 }
 
 // Global initialization lock so index runs only once per runtime process in background
@@ -781,7 +843,7 @@ export async function flushStagedContent(): Promise<{ flushedCount: number }> {
 // ──────────────────────────────────────────
 
 export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
-  const { token } = ghConfig;
+  const { token, owner, repo } = resolveGitHubOptions(ghConfig);
   if (!token) {
     throw new Error('Token GitHub diperlukan untuk melakukan sinkronisasi ke repository.');
   }
@@ -867,14 +929,15 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
         (item.path.endsWith('.md') || item.path.endsWith('.markdown'))
     );
 
-    for (const item of contentBlobsOnGitHub) {
-      if (!targetFilesSet.has(item.path)) {
-        try {
-          console.log(`[syncMongoDBToGitHub] Deleting orphan file from GitHub: ${item.path}`);
-          await deleteGitHubFile(item.path, `cms: delete ${item.path}`, ghConfig);
-        } catch (delErr) {
-          console.warn(`[syncMongoDBToGitHub] Warning deleting orphan ${item.path}:`, delErr);
-        }
+    const orphansToDelete = contentBlobsOnGitHub.filter((item) => !targetFilesSet.has(item.path));
+    if (orphansToDelete.length > 0) {
+      // Parallel batch deletion up to 10 files at a time to prevent serverless timeout
+      const batchSize = 10;
+      for (let i = 0; i < orphansToDelete.length; i += batchSize) {
+        const chunk = orphansToDelete.slice(i, i + batchSize);
+        await Promise.allSettled(
+          chunk.map((item) => deleteGitHubFile(item.path, `cms: delete orphan ${item.path}`, ghConfig))
+        );
       }
     }
   } catch (treeErr) {
@@ -884,11 +947,242 @@ export async function syncMongoDBToGitHub(ghConfig: GitHubOptions) {
   // 5. Commit all active files in a single atomic Git Tree commit (< 1 second)
   const res = await commitMultipleGitHubFiles(
     filesArray,
-    `cms: sync ${filesArray.length} content files from CMS`,
+    `cms: sync ${filesArray.length} content files from CMS to ${owner}/${repo}`,
     ghConfig
   );
 
   invalidateAllMongoCaches();
 
-  return { success: true, syncedCount: res.syncedCount };
+  // Save lastExportAt timestamp in settings
+  await saveStoredGitHubSettings({
+    lastExportAt: Date.now(),
+    lastSyncedCount: res.syncedCount,
+  });
+
+  return { success: true, syncedCount: res.syncedCount, commitSha: res.commitSha, repo: `${owner}/${repo}` };
 }
+
+/**
+ * Bulk imports all Markdown files from GitHub Content Repository into MongoDB.
+ * Uses getGitHubTree to fetch repo structure in 1 call, fetches blobs in concurrent chunks of 15,
+ * and executes MongoDB bulkWrite (unordered upserts) for maximum speed (< 3s).
+ */
+export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
+  success: boolean;
+  importedMovies: number;
+  importedShows: number;
+  importedEpisodes: number;
+  totalFiles: number;
+  repo: string;
+}> {
+  const { token, owner, repo } = resolveGitHubOptions(ghConfig);
+  if (!token) {
+    throw new Error('Token GitHub diperlukan untuk melakukan import dari repository.');
+  }
+
+  const { movies, tvShows, episodes } = await getCollectionsRaw();
+
+  // 1. Fetch entire GitHub file tree in 1 fast API call
+  const ghTree = await getGitHubTree(ghConfig);
+  if (!ghTree || ghTree.length === 0) {
+    throw new Error(`Tidak ada file ditemukan pada repository '${owner}/${repo}'. Pastikan repository memiliki file Markdown di video/ atau tv/.`);
+  }
+
+  // Filter content blobs
+  const movieBlobs = ghTree.filter(
+    (item) =>
+      item.type === 'blob' &&
+      item.path.startsWith('video/') &&
+      (item.path.endsWith('.md') || item.path.endsWith('.markdown'))
+  );
+
+  const tvIndexBlobs = ghTree.filter(
+    (item) =>
+      item.type === 'blob' &&
+      item.path.startsWith('tv/') &&
+      (item.path.endsWith('/_index.md') || item.path.endsWith('/index.md'))
+  );
+
+  const episodeBlobs = ghTree.filter(
+    (item) =>
+      item.type === 'blob' &&
+      item.path.startsWith('tv/') &&
+      !item.path.endsWith('/_index.md') &&
+      !item.path.endsWith('/index.md') &&
+      (item.path.endsWith('.md') || item.path.endsWith('.markdown'))
+  );
+
+  const totalContentBlobs = movieBlobs.length + tvIndexBlobs.length + episodeBlobs.length;
+  if (totalContentBlobs === 0) {
+    return {
+      success: true,
+      importedMovies: 0,
+      importedShows: 0,
+      importedEpisodes: 0,
+      totalFiles: 0,
+      repo: `${owner}/${repo}`,
+    };
+  }
+
+  // Helper to fetch blob contents in concurrent chunks
+  const fetchBlobContents = async (blobs: typeof movieBlobs, chunkSize = 15) => {
+    const results: { path: string; content: string }[] = [];
+    for (let i = 0; i < blobs.length; i += chunkSize) {
+      const chunk = blobs.slice(i, i + chunkSize);
+      const batch = await Promise.all(
+        chunk.map(async (blob) => {
+          try {
+            const content = await getGitHubBlob(blob.sha, ghConfig);
+            return { path: blob.path, content: content || '' };
+          } catch {
+            return { path: blob.path, content: '' };
+          }
+        })
+      );
+      results.push(...batch);
+    }
+    return results;
+  };
+
+  const now = Date.now();
+
+  // 2. Fetch and prepare Movies
+  const fetchedMovies = await fetchBlobContents(movieBlobs);
+  const movieOps: any[] = [];
+  for (const m of fetchedMovies) {
+    if (!m.content) continue;
+    try {
+      const parsed = matter(m.content);
+      const fm = parsed.data || {};
+      const slug = m.path.replace(/^video\//, '').replace(/\.(md|markdown)$/i, '');
+      const doc: MongoMovie = {
+        slug,
+        tmdb_id: Number(fm.tmdb_id) || 0,
+        title: String(fm.title || slug).trim(),
+        videourl: cleanVideoUrl(String(fm.videourl || fm.video_url || '')),
+        image_url: String(fm.image_url || fm.poster || '').trim(),
+        deskripsi: String(fm.deskripsi || fm.desc || fm.overview || '').trim(),
+        rating: fm.rating !== undefined && fm.rating !== null ? Number(fm.rating) : 0,
+        featured: Boolean(fm.featured),
+        trending: Boolean(fm.trending),
+        language: String(fm.language || 'ID').toUpperCase().trim(),
+        weight: fm.weight !== undefined && fm.weight !== null ? Number(fm.weight) : undefined,
+        subtitles: String(fm.subtitles || '').trim(),
+        duration: String(fm.duration || '').trim(),
+        content: parsed.content || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      movieOps.push({
+        updateOne: {
+          filter: { slug },
+          update: { $set: doc },
+          upsert: true,
+        },
+      });
+    } catch (parseErr) {
+      console.warn(`[syncGitHubToMongoDB] Error parsing movie ${m.path}:`, parseErr);
+    }
+  }
+
+  // 3. Fetch and prepare TV Shows
+  const fetchedTvIndex = await fetchBlobContents(tvIndexBlobs);
+  const showOps: any[] = [];
+  for (const s of fetchedTvIndex) {
+    if (!s.content) continue;
+    try {
+      const parsed = matter(s.content);
+      const fm = parsed.data || {};
+      const parts = s.path.split('/');
+      const showSlug = parts[1] || 'unknown';
+      const doc: MongoTVShow = {
+        showSlug,
+        tmdb_id: Number(fm.tmdb_id) || 0,
+        title: String(fm.title || showSlug).trim(),
+        image_url: String(fm.image_url || fm.poster || '').trim(),
+        deskripsi: String(fm.deskripsi || fm.desc || fm.overview || '').trim(),
+        rating: fm.rating !== undefined && fm.rating !== null ? Number(fm.rating) : 0,
+        featured: Boolean(fm.featured),
+        trending: Boolean(fm.trending),
+        language: String(fm.language || 'ID').toUpperCase().trim(),
+        weight: fm.weight !== undefined && fm.weight !== null ? Number(fm.weight) : undefined,
+        content: parsed.content || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      showOps.push({
+        updateOne: {
+          filter: { showSlug },
+          update: { $set: doc },
+          upsert: true,
+        },
+      });
+    } catch (parseErr) {
+      console.warn(`[syncGitHubToMongoDB] Error parsing TV show ${s.path}:`, parseErr);
+    }
+  }
+
+  // 4. Fetch and prepare TV Episodes
+  const fetchedEpisodes = await fetchBlobContents(episodeBlobs);
+  const episodeOps: any[] = [];
+  for (const ep of fetchedEpisodes) {
+    if (!ep.content) continue;
+    try {
+      const parsed = matter(ep.content);
+      const fm = parsed.data || {};
+      const parts = ep.path.split('/');
+      const showSlug = parts[1] || 'unknown';
+      const seasonFolder = parts.length > 3 ? parts[2].toLowerCase().trim() : 's1';
+      const rawEp = parts[parts.length - 1].replace(/\.(md|markdown)$/i, '').trim();
+      const cleanEp = rawEp.toLowerCase().startsWith('e') ? rawEp.toLowerCase() : `e${rawEp.replace(/\D/g, '') || '1'}`;
+
+      const epDoc: MongoTVEpisode = {
+        showSlug,
+        seasonFolder,
+        episode: cleanEp,
+        slug: cleanEp,
+        title: String(fm.title || `Episode ${cleanEp.replace(/\D/g, '') || '1'}`).trim(),
+        videourl: cleanVideoUrl(String(fm.videourl || fm.video_url || '')),
+        image_url: String(fm.image_url || fm.poster || '').trim(),
+        deskripsi: String(fm.deskripsi || fm.desc || '').trim(),
+        rating: fm.rating !== undefined && fm.rating !== null ? Number(fm.rating) : 0,
+        duration: String(fm.duration || '').trim(),
+        subtitles: String(fm.subtitles || '').trim(),
+        content: parsed.content || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      episodeOps.push({
+        updateOne: {
+          filter: { showSlug, seasonFolder, episode: cleanEp },
+          update: { $set: epDoc },
+          upsert: true,
+        },
+      });
+    } catch (parseErr) {
+      console.warn(`[syncGitHubToMongoDB] Error parsing TV episode ${ep.path}:`, parseErr);
+    }
+  }
+
+  // 5. Execute MongoDB bulk writes in parallel
+  await Promise.all([
+    movieOps.length > 0 ? movies.bulkWrite(movieOps, { ordered: false }) : Promise.resolve(),
+    showOps.length > 0 ? tvShows.bulkWrite(showOps, { ordered: false }) : Promise.resolve(),
+    episodeOps.length > 0 ? episodes.bulkWrite(episodeOps, { ordered: false }) : Promise.resolve(),
+  ]);
+
+  invalidateAllMongoCaches();
+
+  // 6. Update lastImportAt in MongoDB admin_settings
+  await saveStoredGitHubSettings({ lastImportAt: now });
+
+  return {
+    success: true,
+    importedMovies: movieOps.length,
+    importedShows: showOps.length,
+    importedEpisodes: episodeOps.length,
+    totalFiles: totalContentBlobs,
+    repo: `${owner}/${repo}`,
+  };
+}
+

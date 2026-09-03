@@ -11,6 +11,8 @@ import {
   getGitHubBlob,
   getGitHubRawFile,
   commitMultipleGitHubFiles,
+  resolveGitHubOptions,
+  parseGitHubRepoInput,
   GitHubOptions,
 } from '@/lib/githubStorage';
 import { getMovieDetails, getTVShowDetails, getImageUrl } from '@/lib/tmdb';
@@ -35,6 +37,9 @@ import {
   deleteMongoTVShow,
   deleteMongoEpisode,
   syncMongoDBToGitHub,
+  syncGitHubToMongoDB,
+  getStoredGitHubSettings,
+  saveStoredGitHubSettings,
   isMongoConfigured,
 } from '@/lib/mongodb/service';
 import { deleteRequestsByContent } from '@/lib/mongodb/requestService';
@@ -52,13 +57,47 @@ export function ensureDirectories() {
   }
 }
 
-export function getGitHubConfigFromRequest(req: Request): GitHubOptions {
+export async function getGitHubConfigFromRequest(req: Request, explicitBody?: any): Promise<GitHubOptions> {
   const headers = req.headers;
-  const token = headers.get('x-github-token') || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || null;
-  const owner = headers.get('x-github-owner') || process.env.GITHUB_OWNER || 'genstava789';
-  const repo = headers.get('x-github-repo') || process.env.GITHUB_REPO || 'filmes';
-  const branch = headers.get('x-github-branch') || process.env.GITHUB_BRANCH || 'main';
-  return { token, owner, repo, branch };
+  const stored = await getStoredGitHubSettings().catch(() => null);
+
+  const rawToken =
+    explicitBody?.token ||
+    headers.get('x-github-token') ||
+    stored?.token ||
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN ||
+    null;
+
+  const rawOwner =
+    explicitBody?.owner ||
+    headers.get('x-github-owner') ||
+    stored?.owner ||
+    process.env.GITHUB_BACKUP_OWNER ||
+    process.env.GITHUB_OWNER ||
+    'genstava789';
+
+  const rawRepo =
+    explicitBody?.repo ||
+    headers.get('x-github-repo') ||
+    stored?.repo ||
+    process.env.GITHUB_BACKUP_REPO ||
+    'filmes-content';
+
+  const rawBranch =
+    explicitBody?.branch ||
+    headers.get('x-github-branch') ||
+    stored?.branch ||
+    process.env.GITHUB_BACKUP_BRANCH ||
+    process.env.GITHUB_BRANCH ||
+    'main';
+
+  return resolveGitHubOptions({
+    token: rawToken,
+    owner: rawOwner,
+    repo: rawRepo,
+    branch: rawBranch,
+  });
 }
 
 /**
@@ -1879,70 +1918,21 @@ export async function syncAllToGitHub(ghConfig: GitHubOptions) {
     throw new Error('Token GitHub diperlukan untuk melakukan sinkronisasi ke repository.');
   }
 
-  try {
-    const res = await syncMongoDBToGitHub(ghConfig);
-    selectiveRevalidateAll();
-    return { success: true, syncedCount: res.syncedCount, deletedCount: 0 };
-  } catch (err: any) {
-    console.warn('[syncAllToGitHub] Fallback to disk sync:', err);
-    // Fallback sync from local files if MongoDB sync failed
-    let syncedCount = 0;
-    const localFiles: { relativePath: string; content: string }[] = [];
+  const res = await syncMongoDBToGitHub(ghConfig);
+  selectiveRevalidateAll();
+  return { success: true, syncedCount: res.syncedCount, commitSha: res.commitSha, repo: res.repo, deletedCount: 0 };
+}
 
-    if (fs.existsSync(VIDEO_DIR)) {
-      const movies = fs.readdirSync(VIDEO_DIR).filter((f) => f.endsWith('.md') || f.endsWith('.markdown'));
-      for (const m of movies) {
-        const rel = `video/${m}`;
-        const content = fs.readFileSync(path.join(VIDEO_DIR, m), 'utf8');
-        localFiles.push({ relativePath: rel, content });
-      }
-    }
-
-    if (fs.existsSync(TV_DIR)) {
-      const shows = fs.readdirSync(TV_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
-      for (const show of shows) {
-        const showDir = path.join(TV_DIR, show.name);
-        const indexPath = fs.existsSync(path.join(showDir, '_index.md'))
-          ? path.join(showDir, '_index.md')
-          : fs.existsSync(path.join(showDir, 'index.md'))
-          ? path.join(showDir, 'index.md')
-          : null;
-        if (indexPath) {
-          const content = fs.readFileSync(indexPath, 'utf8');
-          localFiles.push({ relativePath: `tv/${show.name}/_index.md`, content });
-        }
-
-        const entries = fs.readdirSync(showDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            const seasonDir = path.join(showDir, entry.name);
-            const eps = fs.readdirSync(seasonDir).filter((f) => f.endsWith('.md') || f.endsWith('.markdown'));
-            for (const ep of eps) {
-              const epPath = path.join(seasonDir, ep);
-              const content = fs.readFileSync(epPath, 'utf8');
-              localFiles.push({ relativePath: `tv/${show.name}/${entry.name}/${ep}`, content });
-            }
-          } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.includes('index')) {
-            const epPath = path.join(showDir, entry.name);
-            const content = fs.readFileSync(epPath, 'utf8');
-            localFiles.push({ relativePath: `tv/${show.name}/${entry.name}`, content });
-          }
-        }
-      }
-    }
-
-    const filesArray = localFiles.map((f) => ({
-      path: f.relativePath,
-      content: f.content,
-    }));
-
-    const result = await commitMultipleGitHubFiles(
-      filesArray,
-      `cms: sync ${filesArray.length} content files from local files`,
-      ghConfig
-    );
-
-    selectiveRevalidateAll();
-    return { success: true, syncedCount: result.syncedCount, deletedCount: 0 };
+/**
+ * Imports all Markdown content from the configured GitHub repository into MongoDB.
+ */
+export async function importAllFromGitHub(ghConfig: GitHubOptions) {
+  const { token } = ghConfig;
+  if (!token) {
+    throw new Error('Token GitHub diperlukan untuk mengimpor dari repository.');
   }
+
+  const res = await syncGitHubToMongoDB(ghConfig);
+  selectiveRevalidateAll();
+  return res;
 }

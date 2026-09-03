@@ -13,7 +13,7 @@ export const revalidate = 0;
 
 export async function GET(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
+    const ghConfig = await getGitHubConfigFromRequest(request);
     const { searchParams } = new URL(request.url);
 
     const tab = (searchParams.get('tab') as 'movies' | 'tv') || 'movies';
@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
     const result = await createAdminContent(body, ghConfig);
     selectiveRevalidateAll();
     return NextResponse.json(result);
@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
     const result = await updateAdminContent(body, ghConfig);
     selectiveRevalidateAll();
     return NextResponse.json(result);
@@ -72,7 +72,8 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const ghConfig = getGitHubConfigFromRequest(request);
+    const body = await request.json().catch(() => ({}));
+    const ghConfig = await getGitHubConfigFromRequest(request, body);
     const { searchParams } = new URL(request.url);
     const pathParam = searchParams.get('path');
     let pathsToDelete: string[] = [];
