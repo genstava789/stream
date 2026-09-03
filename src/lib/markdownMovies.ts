@@ -322,12 +322,19 @@ export async function getCustomMovieBySlug(slugOrId: string | number): Promise<C
               rawContent: mongoDoc.content || '',
             };
           }
+
+          // If MongoDB is configured and populated, do not fall back to disk/static files.
+          // This prevents deleted movies from resurrecting on movie detail pages.
+          const mongoAll = await getMongoMovies().catch(() => []);
+          if (mongoAll.length > 0) {
+            return null;
+          }
         } catch (mErr) {
           console.warn('[markdownMovies] MongoDB getCustomMovieBySlug notice:', mErr);
         }
       }
 
-      // ── 2. FALLBACK: Check Local Disk / Static Registry if not found in MongoDB ──
+      // ── 2. FALLBACK: Check Local Disk / Static Registry only if MongoDB is empty or not configured ──
       ensureContentDirExists();
       const idMatch = cleanKey.match(/-(\d{4,})$/);
       const trailingId = idMatch ? idMatch[1] : null;

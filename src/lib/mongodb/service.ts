@@ -349,6 +349,12 @@ function invalidateAllMongoCaches() {
   memoryCache.invalidate('cms_');
   memoryCache.invalidate('bucket_');
   memoryCache.invalidate('hero_');
+  memoryCache.invalidate('movie_detail_');
+  memoryCache.invalidate('movie_detail_override_');
+  memoryCache.invalidate('tv_detail_');
+  memoryCache.invalidate('tv_detail_override_');
+  memoryCache.invalidate('custom_movie_');
+  memoryCache.invalidate('custom_tv_');
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -565,11 +571,40 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
   return doc;
 }
 
-export async function deleteMongoMovie(slug: string): Promise<boolean> {
+export async function deleteMongoMovie(
+  slug: string,
+  tmdbId?: number | string
+): Promise<{ deletedCount: number; tmdb_id?: number; slug: string; title?: string }> {
   const { movies } = await getCollectionsRaw();
-  const res = await movies.deleteOne({ slug });
+  const cleanSlug = slug.replace(/\.(md|markdown)$/i, '').trim();
+  const parsedId = tmdbId ? Number(tmdbId) : Number(cleanSlug);
+  const hasValidId = !isNaN(parsedId) && parsedId > 0;
+
+  const orQuery: any[] = [
+    { slug: cleanSlug },
+    { slug: `${cleanSlug}.md` },
+    { slug: cleanSlug.toLowerCase() },
+  ];
+  if (hasValidId) {
+    orQuery.push({ tmdb_id: parsedId });
+  }
+
+  const existing = await movies.findOne({ $or: orQuery }).catch(() => null);
+  const resolvedTmdbId = existing?.tmdb_id || (hasValidId ? parsedId : undefined);
+  const resolvedTitle = existing?.title;
+
+  if (resolvedTmdbId && !orQuery.some((q) => q.tmdb_id === resolvedTmdbId)) {
+    orQuery.push({ tmdb_id: resolvedTmdbId });
+  }
+
+  const res = await movies.deleteMany({ $or: orQuery });
   invalidateAllMongoCaches();
-  return res.deletedCount > 0;
+  return {
+    deletedCount: res.deletedCount,
+    tmdb_id: resolvedTmdbId,
+    slug: cleanSlug,
+    title: resolvedTitle,
+  };
 }
 
 export async function getPaginatedMongoTVShows(
@@ -855,12 +890,45 @@ export async function saveMongoTVShow(
   return showDoc;
 }
 
-export async function deleteMongoTVShow(showSlug: string): Promise<boolean> {
+export async function deleteMongoTVShow(
+  showSlug: string,
+  tmdbId?: number | string
+): Promise<{ deletedCount: number; tmdb_id?: number; showSlug: string; title?: string }> {
   const { tvShows, episodes } = await getCollectionsRaw();
-  await episodes.deleteMany({ showSlug });
-  const res = await tvShows.deleteOne({ showSlug });
+  const cleanShowSlug = showSlug.replace(/\/_?index\.md$/i, '').replace(/\.(md|markdown)$/i, '').trim();
+  const parsedId = tmdbId ? Number(tmdbId) : Number(cleanShowSlug);
+  const hasValidId = !isNaN(parsedId) && parsedId > 0;
+
+  const orQuery: any[] = [
+    { showSlug: cleanShowSlug },
+    { showSlug: cleanShowSlug.toLowerCase() },
+  ];
+  if (hasValidId) {
+    orQuery.push({ tmdb_id: parsedId });
+  }
+
+  const existing = await tvShows.findOne({ $or: orQuery }).catch(() => null);
+  const resolvedTmdbId = existing?.tmdb_id || (hasValidId ? parsedId : undefined);
+  const resolvedTitle = existing?.title;
+
+  if (resolvedTmdbId && !orQuery.some((q) => q.tmdb_id === resolvedTmdbId)) {
+    orQuery.push({ tmdb_id: resolvedTmdbId });
+  }
+
+  await episodes.deleteMany({
+    $or: [
+      { showSlug: cleanShowSlug },
+      ...(existing?.showSlug ? [{ showSlug: existing.showSlug }] : []),
+    ],
+  });
+  const res = await tvShows.deleteMany({ $or: orQuery });
   invalidateAllMongoCaches();
-  return res.deletedCount > 0;
+  return {
+    deletedCount: res.deletedCount,
+    tmdb_id: resolvedTmdbId,
+    showSlug: cleanShowSlug,
+    title: resolvedTitle,
+  };
 }
 
 export async function deleteMongoEpisode(showSlug: string, seasonFolder: string, episode: string): Promise<boolean> {

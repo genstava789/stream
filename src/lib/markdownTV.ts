@@ -421,12 +421,19 @@ export async function getCustomTVShowBySlug(showSlugOrTmdbId: string | number): 
               allEpisodes: episodes,
             };
           }
+
+          // If MongoDB is configured and contains TV shows, do not fall back to disk/static files.
+          // This prevents deleted TV shows from resurrecting on TV detail pages.
+          const mongoAll = await getMongoTVShows().catch(() => []);
+          if (mongoAll.length > 0) {
+            return null;
+          }
         } catch (mErr) {
           console.warn('[markdownTV] MongoDB getCustomTVShowBySlug notice:', mErr);
         }
       }
 
-      // ── 2. FALLBACK: Check Local Disk / Static Registry if not found in MongoDB ──
+      // ── 2. FALLBACK: Check Local Disk / Static Registry only if MongoDB is empty or not configured ──
       ensureTVDirExists();
       const showDirs = getAllCustomTVShowDirs();
 

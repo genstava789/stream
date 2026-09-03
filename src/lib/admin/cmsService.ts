@@ -105,9 +105,13 @@ export async function getGitHubConfigFromRequest(req: Request, explicitBody?: an
  * Only invalidates markdown and content provider cache without purging TMDB API responses.
  * Ensures the homepage loads in < 20ms instead of 1-3 seconds of remote TMDB latency!
  */
-export function selectiveRevalidateAll(targetSlug?: string) {
+export function selectiveRevalidateAll(
+  targetSlug?: string,
+  tmdbId?: number | string,
+  type: 'movie' | 'tv' = 'movie'
+) {
   try {
-    // 1. Invalidate only local markdown, mongo, admin, custom & featured caches
+    // 1. Invalidate local memory caches
     memoryCache.invalidate('markdown_');
     memoryCache.invalidate('featured_');
     memoryCache.invalidate('custom_');
@@ -122,6 +126,12 @@ export function selectiveRevalidateAll(targetSlug?: string) {
     memoryCache.invalidate('featured_custom_tv_list');
     memoryCache.invalidate('all_custom_movies_list');
     memoryCache.invalidate('all_custom_tv_list');
+    memoryCache.invalidate('movie_detail_');
+    memoryCache.invalidate('movie_detail_override_');
+    memoryCache.invalidate('tv_detail_');
+    memoryCache.invalidate('tv_detail_override_');
+    memoryCache.invalidate('custom_movie_');
+    memoryCache.invalidate('custom_tv_');
 
     // 2. Invalidate content provider in-memory registry
     try {
@@ -160,9 +170,30 @@ export function selectiveRevalidateAll(targetSlug?: string) {
       revalidatePath('/embed/tv/[...slug]', 'page');
       revalidatePath('/admin', 'page');
       revalidatePath('/genre/[id]', 'page');
+
       if (targetSlug) {
-        revalidatePath(`/movie/${targetSlug}`, 'page');
-        revalidatePath(`/tv/${targetSlug}`, 'page');
+        const cleanTarget = targetSlug.replace(/\.(md|markdown)$/i, '').trim();
+        if (type === 'movie') {
+          revalidatePath(`/movie/${cleanTarget}`, 'page');
+          revalidatePath(`/movie/${cleanTarget}-2026`, 'page');
+          revalidatePath(`/embed/movie/${cleanTarget}`, 'page');
+          revalidatePath(`/embed/movie/${cleanTarget}-2026`, 'page');
+          if (tmdbId) {
+            revalidatePath(`/movie/${tmdbId}`, 'page');
+            revalidatePath(`/movie/${cleanTarget}-${tmdbId}`, 'page');
+            revalidatePath(`/embed/movie/${tmdbId}`, 'page');
+            revalidatePath(`/embed/movie/${cleanTarget}-${tmdbId}`, 'page');
+          }
+        } else {
+          revalidatePath(`/tv/${cleanTarget}`, 'page');
+          revalidatePath(`/tv/${cleanTarget}-2026`, 'page');
+          revalidatePath(`/embed/tv/${cleanTarget}`, 'page');
+          if (tmdbId) {
+            revalidatePath(`/tv/${tmdbId}`, 'page');
+            revalidatePath(`/tv/${cleanTarget}-${tmdbId}`, 'page');
+            revalidatePath(`/embed/tv/${tmdbId}`, 'page');
+          }
+        }
       }
     } catch {}
   } catch (err) {
@@ -1250,6 +1281,8 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       title: frontmatterData.title || title,
       mediaType: 'movie',
     }).catch((err) => console.warn('[CMS auto-delete request] Error:', err));
+
+    selectiveRevalidateAll(fileSlug, tmdbIdNum, 'movie');
   } else if (contentType === 'tv_show') {
     let { tmdb_id, title, desc, poster, rating, featured, showSlug, content = '', seasons = [] } = body;
 
@@ -1458,7 +1491,7 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       mediaType: 'tv',
     }).catch((err) => console.warn('[CMS auto-delete request] Error:', err));
 
-    selectiveRevalidateAll();
+    selectiveRevalidateAll(cleanShowSlug, tmdbIdNum, 'tv');
     return {
       success: true,
       relativePath,
@@ -1867,9 +1900,12 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
     }
   }
 
-  selectiveRevalidateAll();
-  return { success: true, relativePath };
-}
+    const targetSlug = isMovie
+      ? path.basename(relativePath).replace(/\.(md|markdown)$/i, '')
+      : relativePath.split('/')[1] || '';
+    selectiveRevalidateAll(targetSlug, cleanFrontmatter?.tmdb_id, isMovie ? 'movie' : 'tv');
+    return { success: true, relativePath };
+  }
 
 /**
  * Delete content from MongoDB and local filesystem
@@ -1892,11 +1928,19 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
       ? relativePath
       : null;
 
+    let targetSlug = '';
+    let targetTmdbId: number | string | undefined = undefined;
+    const contentType: 'movie' | 'tv' = isMovie ? 'movie' : 'tv';
+
     // Remove from in-memory static registry
     if (isMovie && typeof STATIC_MOVIE_FILES === 'object') {
       delete STATIC_MOVIE_FILES[relativePath];
       delete STATIC_MOVIE_FILES[relativePath.replace(/\//g, '\\')];
       delete STATIC_MOVIE_FILES[relativePath.replace(/\\/g, '/')];
+      const mSlug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
+      delete STATIC_MOVIE_FILES[`video/${mSlug}.md`];
+      delete STATIC_MOVIE_FILES[`video\\${mSlug}.md`];
+      delete STATIC_MOVIE_FILES[`video/${mSlug}`];
     } else if (isTV && typeof STATIC_TV_FILES === 'object') {
       if (folderToDelete) {
         for (const k of Object.keys(STATIC_TV_FILES)) {
@@ -1911,20 +1955,34 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
       }
     }
 
-    // Delete from MongoDB & Disk with exact granular scope
+    // Read file on disk first if it exists to extract tmdb_id if possible
+    try {
+      const fullPath = path.join(process.cwd(), folderToDelete || relativePath);
+      if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+        const raw = fs.readFileSync(fullPath, 'utf8');
+        const parsed = matter(raw);
+        if (parsed.data?.tmdb_id) targetTmdbId = parsed.data.tmdb_id;
+      }
+    } catch {}
+
+    // Delete from MongoDB with exact granular multi-key scope
     if (isMongoConfigured()) {
       try {
         if (isMovie) {
           const slug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
-          await deleteMongoMovie(slug);
+          targetSlug = slug;
+          const mDelRes = await deleteMongoMovie(slug, targetTmdbId);
+          if (mDelRes.tmdb_id) targetTmdbId = mDelRes.tmdb_id;
         } else if (isTvShowIndex || isTvDirectory) {
           const showSlug = (folderToDelete || relativePath).replace(/^tv\//, '').split('/')[0];
-          await deleteMongoTVShow(showSlug);
+          targetSlug = showSlug;
+          const tDelRes = await deleteMongoTVShow(showSlug, targetTmdbId);
+          if (tDelRes.tmdb_id) targetTmdbId = tDelRes.tmdb_id;
         } else if (isTvEpisode) {
-          // e.g. tv/lanterns/s1/e1.md
           const cleanRel = relativePath.replace(/^tv\//, '');
           const parts = cleanRel.split('/');
           const showSlug = parts[0];
+          targetSlug = showSlug;
           const seasonFolder = parts[1] || 's1';
           const episode = path.basename(parts[2] || parts[parts.length - 1] || '').replace(/\.(md|markdown)$/i, '');
           if (showSlug && seasonFolder && episode) {
@@ -1936,6 +1994,7 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
       }
     }
 
+    // Delete from local filesystem
     try {
       const fullPath = path.join(process.cwd(), folderToDelete || relativePath);
       if (fs.existsSync(fullPath)) {
@@ -1945,6 +2004,12 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
         } else {
           fs.unlinkSync(fullPath);
         }
+      }
+      if (!folderToDelete) {
+        const altPath = fullPath.endsWith('.md')
+          ? fullPath.replace(/\.md$/i, '.markdown')
+          : fullPath.replace(/\.markdown$/i, '.md');
+        if (fs.existsSync(altPath)) fs.unlinkSync(altPath);
       }
     } catch (err: any) {
       console.warn(`[deleteAdminContent] Error removing ${relativePath}:`, err);
@@ -1961,9 +2026,10 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
         console.warn(`[deleteAdminContent] Error deleting on GitHub:`, ghErr);
       }
     }
+
+    selectiveRevalidateAll(targetSlug, targetTmdbId, contentType);
   }
 
-  selectiveRevalidateAll();
   return { success: true, count: pathsToDelete.length };
 }
 

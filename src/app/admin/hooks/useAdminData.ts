@@ -374,6 +374,20 @@ export function useAdminData() {
       }
 
       showToast(isBatch ? `${count} konten berhasil dihapus!` : 'Konten berhasil dihapus!');
+      const targetPaths = isBatch ? [...selectedBatchPaths] : [path];
+
+      // Optimistically remove deleted items from client state immediately
+      setMovies((prev) =>
+        prev.filter((m) => !targetPaths.some((tp) => tp === m.relativePath || tp.includes(m.slug)))
+      );
+      setTvShows((prev) =>
+        prev.filter((s) => !targetPaths.some((tp) => tp === s.relativePath || tp.includes(s.showSlug)))
+      );
+      setTotalMovies((prev) => Math.max(0, prev - (isBatch ? count || 1 : 1)));
+      setTotalTvShows((prev) => Math.max(0, prev - (isBatch ? count || 1 : 1)));
+      setTotalAllMoviesCount((prev) => Math.max(0, prev - (isBatch ? count || 1 : 1)));
+      setTotalAllTvShowsCount((prev) => Math.max(0, prev - (isBatch ? count || 1 : 1)));
+
       setSelectedBatchPaths([]);
       adminClientCache.clear();
       setPageLoading(true);
