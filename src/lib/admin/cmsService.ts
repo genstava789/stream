@@ -158,8 +158,8 @@ export function selectiveRevalidateAll(
       } catch {}
     }
 
-    // 4. Trigger on-demand Next.js route ISR revalidations
     try {
+      revalidatePath('/');
       revalidatePath('/', 'page');
       revalidatePath('/', 'layout');
       revalidatePath('/movie', 'page');

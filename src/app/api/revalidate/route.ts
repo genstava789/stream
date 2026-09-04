@@ -48,6 +48,7 @@ async function handleRevalidation(request: NextRequest) {
     }
 
     // 3. Revalidate specific target path
+    revalidatePath(path);
     revalidatePath(path, 'page');
     if (path === '/') {
       revalidatePath('/', 'layout');

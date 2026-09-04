@@ -489,8 +489,8 @@ export async function getMongoMovies(): Promise<MongoMovie[]> {
         []
       );
     },
-    300_000, // 5 min TTL
-    30_000   // 30s SWR
+    10_000, // 10s TTL (fast deduplication during page render while allowing instant ISR fresh data)
+    3_000   // 3s SWR
   );
 }
 
@@ -768,8 +768,8 @@ export async function getMongoTVShows(): Promise<(MongoTVShow & { episodes: Mong
         []
       );
     },
-    300_000, // 5 min TTL
-    30_000   // 30s SWR
+    10_000, // 10s TTL (fast deduplication during page render while allowing instant ISR fresh data)
+    3_000   // 3s SWR
   );
 }
 

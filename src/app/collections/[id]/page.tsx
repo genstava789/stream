@@ -8,7 +8,8 @@ import siteConfig from '@/config';
 import { getImageUrl } from '@/lib/tmdb';
 
 export const dynamicParams = true;
-export const revalidate = 60;
+// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier)
+export const revalidate = 3600;
 
 interface PageProps {
   params: {

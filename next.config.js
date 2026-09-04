@@ -22,8 +22,8 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'tinacms'],
     staleTimes: {
-      dynamic: 120,
-      static: 300,
+      dynamic: 0,
+      static: 30,
     },
   },
 

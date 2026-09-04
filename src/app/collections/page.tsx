@@ -4,7 +4,8 @@ import CollectionsClient from './CollectionsClient';
 import { getPublicCollections } from '@/lib/mongodb/collectionService';
 import siteConfig from '@/config';
 
-export const revalidate = 60;
+// ISR with On-Demand Revalidation (Optimized for Vercel Free Tier)
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: `Koleksi Film & Series Komunitas - ${siteConfig.name}`,
