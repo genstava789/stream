@@ -312,7 +312,18 @@ export function useAdminData() {
       throw new Error(result.error || 'Gagal membuat konten');
     }
 
-    showToast('Konten berhasil dibuat & live!');
+    if (result.demotedTrending?.length > 0 || result.demotedFeatured?.length > 0) {
+      const parts: string[] = [];
+      if (result.demotedTrending?.length > 0) {
+        parts.push(`${result.demotedTrending.length} trending lama di-uncheck`);
+      }
+      if (result.demotedFeatured?.length > 0) {
+        parts.push(`${result.demotedFeatured.length} featured lama di-uncheck`);
+      }
+      showToast(`Konten dibuat & live! (${parts.join(', ')})`);
+    } else {
+      showToast('Konten berhasil dibuat & live!');
+    }
     adminClientCache.clear();
     setPageLoading(true);
     setMoviePage(1);
@@ -343,7 +354,18 @@ export function useAdminData() {
       throw new Error(result.error || 'Gagal menyimpan perubahan');
     }
 
-    showToast('Perubahan berhasil disimpan & live!');
+    if (result.demotedTrending?.length > 0 || result.demotedFeatured?.length > 0) {
+      const parts: string[] = [];
+      if (result.demotedTrending?.length > 0) {
+        parts.push(`${result.demotedTrending.length} trending lama di-uncheck`);
+      }
+      if (result.demotedFeatured?.length > 0) {
+        parts.push(`${result.demotedFeatured.length} featured lama di-uncheck`);
+      }
+      showToast(`Perubahan disimpan & live! (${parts.join(', ')})`);
+    } else {
+      showToast('Perubahan berhasil disimpan & live!');
+    }
     adminClientCache.clear();
     setPageLoading(true);
     setMoviePage(1);

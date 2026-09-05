@@ -30,81 +30,14 @@ export interface GetFeaturedOptions {
   maxItems?: number;
 }
 
-/**
- * Automatically enforces the featured limit:
- * If the number of items with `featured: true` exceeds `limit` (default: 7),
- * the newest items are retained as featured, and older items are demoted to `featured: false`.
- * Updates both disk markdown files and MongoDB to keep data in sync.
- */
-export async function enforceFeaturedLimit(type: 'movie' | 'tv', limit: number = siteConfig.featuredLimit || 7): Promise<void> {
-  try {
-    if (type === 'movie') {
-      const featuredMovies = await getAllFeaturedCustomMovies().catch(() => []);
-      if (featuredMovies.length > limit) {
-        const excessItems = featuredMovies.slice(limit);
-        for (const item of excessItems) {
-          const slug = String(item.id || '').replace(/^movie-/, '');
-          if (!slug) continue;
+import {
+  enforceFeaturedLimit,
+  enforceTrendingLimit,
+  getFeaturedLimit,
+  getTrendingLimit,
+} from '@/lib/contentLimits';
 
-          // 1. Update file on disk if exists
-          try {
-            const filePath = path.join(VIDEO_DIR, `${slug}.md`);
-            if (fs && typeof fs.existsSync === 'function' && fs.existsSync(filePath)) {
-              const raw = fs.readFileSync(filePath, 'utf8');
-              const { data, content } = matter(raw);
-              data.featured = false;
-              const updatedContent = serializeTinaMovie(data, content);
-              fs.writeFileSync(filePath, updatedContent, 'utf8');
-            }
-          } catch (e) {
-            // Edge runtime / Cloudflare Workers
-          }
-
-          // 2. Update MongoDB if configured
-          if (isMongoConfigured()) {
-            await saveMongoMovie({ slug, featured: false }).catch(() => {});
-          }
-        }
-        memoryCache.invalidate('featured_');
-        memoryCache.invalidate('custom_movies_');
-        memoryCache.invalidate('resolved_sections_');
-      }
-    } else if (type === 'tv') {
-      const featuredTV = await getAllFeaturedCustomTV().catch(() => []);
-      if (featuredTV.length > limit) {
-        const excessItems = featuredTV.slice(limit);
-        for (const item of excessItems) {
-          const showSlug = String(item.id || '').replace(/^tv-/, '');
-          if (!showSlug) continue;
-
-          // 1. Update file on disk if exists
-          try {
-            const indexPath = path.join(TV_DIR, showSlug, '_index.md');
-            if (fs && typeof fs.existsSync === 'function' && fs.existsSync(indexPath)) {
-              const raw = fs.readFileSync(indexPath, 'utf8');
-              const { data, content } = matter(raw);
-              data.featured = false;
-              const updatedContent = serializeTinaTVShow(data, content);
-              fs.writeFileSync(indexPath, updatedContent, 'utf8');
-            }
-          } catch (e) {
-            // Edge runtime / Cloudflare Workers
-          }
-
-          // 2. Update MongoDB if configured
-          if (isMongoConfigured()) {
-            await saveMongoTVShow({ showSlug, featured: false }).catch(() => {});
-          }
-        }
-        memoryCache.invalidate('featured_');
-        memoryCache.invalidate('custom_tv_');
-        memoryCache.invalidate('resolved_sections_');
-      }
-    }
-  } catch (err) {
-    console.warn(`[featured] Error enforcing featured limit for ${type}:`, err);
-  }
-}
+export { enforceFeaturedLimit, enforceTrendingLimit, getFeaturedLimit, getTrendingLimit };
 
 /**
  * Loads Featured Hero MOVIES for Home Page:

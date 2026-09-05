@@ -114,6 +114,10 @@ export const siteConfig = {
   // Maximum items allowed in Featured Hero (auto-evicts older items if exceeded)
   featuredLimit: 7,
 
+  // Maximum items allowed in Trending Section (auto-evicts older items if exceeded)
+  trendingLimit: 10,
+  trendingTVLimit: 10,
+
   // Customizable Featured Hero items for the carousel.
   // When empty, items are dynamically sourced from custom markdown files with `featured: true` in frontmatter.
   featuredItems: [] as FeaturedItem[],

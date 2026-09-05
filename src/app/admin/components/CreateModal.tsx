@@ -24,6 +24,7 @@ import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { cleanVideoUrl, isValidVideoUrl, extractTmdbIdAndType } from '@/lib/urls';
 import { normalizeLangCode } from '@/lib/language';
+import siteConfig from '@/config';
 
 interface TMDBLiveSearchResult {
   id: number;
@@ -916,30 +917,58 @@ export const CreateModal: React.FC<CreateModalProps> = ({
           </div>
 
           {/* Featured & Trending Toggles */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-black/30 border border-white/5 rounded-xl">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={formFeatured}
-                onChange={(e) => setFormFeatured(e.target.checked)}
-                className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
-              />
-              <span className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-1">
-                <Star size={14} fill="currentColor" /> Featured Hero Carousel
-              </span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={formTrending}
-                onChange={(e) => setFormTrending(e.target.checked)}
-                className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
-              />
-              <span className="text-xs sm:text-sm font-bold text-rose-400 flex items-center gap-1">
-                🔥 Trending Section (Home)
-              </span>
-            </label>
-          </div>
+          {(() => {
+            const featLimit = siteConfig?.featuredLimit || 7;
+            const trendLimit =
+              contentType === 'tv_show'
+                ? (siteConfig as any)?.trendingTVLimit || 10
+                : (siteConfig as any)?.trendingLimit ||
+                  siteConfig?.sections?.find((s) => s.id === 'trending')?.limit ||
+                  10;
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-black/30 border border-white/5 rounded-xl">
+                <div className="flex flex-col gap-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={formFeatured}
+                      onChange={(e) => setFormFeatured(e.target.checked)}
+                      className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
+                    />
+                    <span className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-1">
+                      <Star size={14} fill="currentColor" /> Featured Hero Carousel
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Maks. {featLimit}
+                    </span>
+                  </label>
+                  <p className="text-[10.5px] text-slate-400 pl-6 leading-tight">
+                    Item lama otomatis di-uncheck jika kuota {featLimit} terlampaui.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={formTrending}
+                      onChange={(e) => setFormTrending(e.target.checked)}
+                      className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
+                    />
+                    <span className="text-xs sm:text-sm font-bold text-rose-400 flex items-center gap-1">
+                      🔥 Trending Section (Home)
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      Maks. {trendLimit}
+                    </span>
+                  </label>
+                  <p className="text-[10.5px] text-slate-400 pl-6 leading-tight">
+                    Item lama otomatis di-uncheck jika kuota {trendLimit} terlampaui.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Overview / Deskripsi */}
           <div>

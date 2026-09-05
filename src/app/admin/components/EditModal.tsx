@@ -21,6 +21,7 @@ import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { extractTmdbIdAndType, cleanVideoUrl, isValidVideoUrl } from '@/lib/urls';
 import { normalizeLangCode } from '@/lib/language';
+import siteConfig from '@/config';
 
 interface EditableEpisode {
   id: string;
@@ -668,32 +669,58 @@ export const EditModal: React.FC<EditModalProps> = ({
               </div>
 
               {/* Featured & Trending Toggles (Movies & TV Series) */}
-              {editingItem.type !== 'tv_episode' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-black/30 border border-white/5 rounded-xl">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(editingItem.frontmatter.featured)}
-                      onChange={(e) => updateFrontmatter('featured', e.target.checked)}
-                      className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
-                    />
-                    <span className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-1">
-                      <Star size={14} fill="currentColor" /> Featured Hero Carousel
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(editingItem.frontmatter.trending)}
-                      onChange={(e) => updateFrontmatter('trending', e.target.checked)}
-                      className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
-                    />
-                    <span className="text-xs sm:text-sm font-bold text-rose-400 flex items-center gap-1">
-                      🔥 Trending Section (Home)
-                    </span>
-                  </label>
-                </div>
-              )}
+              {editingItem.type !== 'tv_episode' && (() => {
+                const featLimit = siteConfig?.featuredLimit || 7;
+                const isTV = editingItem.type === 'tv_show';
+                const trendLimit = isTV
+                  ? (siteConfig as any)?.trendingTVLimit || 10
+                  : (siteConfig as any)?.trendingLimit ||
+                    siteConfig?.sections?.find((s) => s.id === 'trending')?.limit ||
+                    10;
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-black/30 border border-white/5 rounded-xl">
+                    <div className="flex flex-col gap-1">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingItem.frontmatter.featured)}
+                          onChange={(e) => updateFrontmatter('featured', e.target.checked)}
+                          className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
+                        />
+                        <span className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-1">
+                          <Star size={14} fill="currentColor" /> Featured Hero Carousel
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Maks. {featLimit}
+                        </span>
+                      </label>
+                      <p className="text-[10.5px] text-slate-400 pl-6 leading-tight">
+                        Item lama otomatis di-uncheck jika kuota {featLimit} terlampaui.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingItem.frontmatter.trending)}
+                          onChange={(e) => updateFrontmatter('trending', e.target.checked)}
+                          className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
+                        />
+                        <span className="text-xs sm:text-sm font-bold text-rose-400 flex items-center gap-1">
+                          🔥 Trending Section (Home)
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          Maks. {trendLimit}
+                        </span>
+                      </label>
+                      <p className="text-[10.5px] text-slate-400 pl-6 leading-tight">
+                        Item lama otomatis di-uncheck jika kuota {trendLimit} terlampaui.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Deskripsi */}
               <div>

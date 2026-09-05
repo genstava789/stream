@@ -45,6 +45,7 @@ import {
 import { deleteRequestsByContent } from '@/lib/mongodb/requestService';
 import { STATIC_MOVIE_FILES, STATIC_TV_FILES } from '@/lib/staticContentRegistry';
 import { normalizeLangCode } from '@/lib/language';
+import { enforceTrendingLimit, enforceFeaturedLimit } from '@/lib/contentLimits';
 
 const VIDEO_DIR = path.join(process.cwd(), 'video');
 const TV_DIR = path.join(process.cwd(), 'tv');
@@ -230,6 +231,14 @@ export async function fetchPaginatedAdminContent(
   const sort = options.sort || 'newest';
   const language = options.language || 'all';
   const status = options.status || 'all';
+
+  // Auto-enforce limits if any items exceed config limits so the CMS list stays 100% accurate
+  await Promise.all([
+    enforceTrendingLimit('movie', undefined, ghConfig).catch(() => {}),
+    enforceFeaturedLimit('movie', undefined, ghConfig).catch(() => {}),
+    enforceTrendingLimit('tv', undefined, ghConfig).catch(() => {}),
+    enforceFeaturedLimit('tv', undefined, ghConfig).catch(() => {}),
+  ]);
 
   // 1. Fetch Paginated Data from MongoDB only if configured
   const [mongoMoviesPaged, mongoTVPaged, counts] = isMongoConfigured()
@@ -1309,7 +1318,28 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       mediaType: 'movie',
     }).catch((err) => console.warn('[CMS auto-delete request] Error:', err));
 
+    // 6. Auto-enforce limits if trending/featured is checked
+    let demotedTrending: string[] = [];
+    let demotedFeatured: string[] = [];
+    if (frontmatterData.trending) {
+      const tRes = await enforceTrendingLimit('movie', undefined, ghConfig).catch(() => null);
+      if (tRes?.demoted) demotedTrending = tRes.demoted;
+    }
+    if (frontmatterData.featured) {
+      const fRes = await enforceFeaturedLimit('movie', undefined, ghConfig).catch(() => null);
+      if (fRes?.demoted) demotedFeatured = fRes.demoted;
+    }
+
     selectiveRevalidateAll(fileSlug, tmdbIdNum, 'movie');
+    return {
+      success: true,
+      relativePath,
+      isUpdate,
+      hasChanges,
+      changedFields,
+      demotedTrending,
+      demotedFeatured,
+    };
   } else if (contentType === 'tv_show') {
     let { tmdb_id, title, desc, poster, rating, featured, showSlug, content = '', seasons = [] } = body;
 
@@ -1659,6 +1689,29 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
         console.warn('[createAdminContent] GitHub auto-commit notice:', ghErr);
       }
     }
+
+    // 5. Auto-enforce limits if trending/featured is checked for TV show
+    let demotedTrending: string[] = [];
+    let demotedFeatured: string[] = [];
+    if (body.trending) {
+      const tRes = await enforceTrendingLimit('tv', undefined, ghConfig).catch(() => null);
+      if (tRes?.demoted) demotedTrending = tRes.demoted;
+    }
+    if (body.featured) {
+      const fRes = await enforceFeaturedLimit('tv', undefined, ghConfig).catch(() => null);
+      if (fRes?.demoted) demotedFeatured = fRes.demoted;
+    }
+
+    selectiveRevalidateAll();
+    return {
+      success: true,
+      relativePath,
+      isUpdate,
+      hasChanges,
+      changedFields,
+      demotedTrending,
+      demotedFeatured,
+    };
   } else {
     throw new Error('Invalid contentType');
   }
@@ -1935,8 +1988,27 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
     const targetSlug = isMovie
       ? path.basename(relativePath).replace(/\.(md|markdown)$/i, '')
       : relativePath.split('/')[1] || '';
+
+    // Auto-enforce limits if trending/featured was enabled in this update
+    let demotedTrending: string[] = [];
+    let demotedFeatured: string[] = [];
+    const mediaType = isMovie ? 'movie' : 'tv';
+    if (cleanFrontmatter.trending) {
+      const tRes = await enforceTrendingLimit(mediaType, undefined, ghConfig).catch(() => null);
+      if (tRes?.demoted) demotedTrending = tRes.demoted;
+    }
+    if (cleanFrontmatter.featured) {
+      const fRes = await enforceFeaturedLimit(mediaType, undefined, ghConfig).catch(() => null);
+      if (fRes?.demoted) demotedFeatured = fRes.demoted;
+    }
+
     selectiveRevalidateAll(targetSlug, cleanFrontmatter?.tmdb_id, isMovie ? 'movie' : 'tv');
-    return { success: true, relativePath };
+    return {
+      success: true,
+      relativePath,
+      demotedTrending,
+      demotedFeatured,
+    };
   }
 
 /**

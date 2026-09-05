@@ -15,6 +15,7 @@ import {
   discoverTVShows,
 } from '@/lib/tmdb';
 import { memoryCache } from '@/lib/cache';
+import { enforceTrendingLimit, enforceFeaturedLimit } from '@/lib/contentLimits';
 
 export interface ResolvedSection {
   id: string;
@@ -223,6 +224,16 @@ export async function getResolvedSections(page: 'home' | 'movie' | 'tv'): Promis
         });
 
         const selectedLocal = deduplicatedLocal.slice(0, limit);
+
+        // Auto-enforce limits if local items exceed section quota
+        if (deduplicatedLocal.length > limit) {
+          if (section.filter?.trending || section.id === 'trending' || section.id === 'trendingTV') {
+            enforceTrendingLimit(section.type === 'tv' ? 'tv' : 'movie', limit).catch(() => {});
+          } else if (section.filter?.featured) {
+            enforceFeaturedLimit(section.type === 'tv' ? 'tv' : 'movie', limit).catch(() => {});
+          }
+        }
+
         let finalItems = [...selectedLocal];
 
         // 4. TMDB Fallback: (Disimpan sebagai komentar sesuai permintaan; aktifkan kembali jika sewaktu-waktu dibutuhkan)
