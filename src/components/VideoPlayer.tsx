@@ -130,6 +130,8 @@ function cleanSubtitleText(raw: string): string {
     .replace(/<[^>]+>/g, '')
     .replace(/\\N/g, '\n')
     .replace(/\\n/g, '\n')
+    .replace(/\\h/g, ' ')
+    .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, '')
     .trim();
 }
 
@@ -339,19 +341,24 @@ export default function VideoPlayer({
       if (!isMkv) return;
       try {
         const { SubtitleParser } = await import('matroska-subtitles');
+        const { EbmlStreamDecoder, EbmlTagId } = await import('ebml-stream');
         if (isCancelled) return;
 
-        const parser = new SubtitleParser();
+        const initialParser = new SubtitleParser();
         const addedCuesSet = new Set<string>();
 
         const addParsedCue = (sub: any, trackNumber: number) => {
           if (isCancelled) return;
           const targetTrack = mkvTracksMapRef.current.get(trackNumber);
           if (targetTrack && typeof sub.time === 'number') {
-            const startSec = sub.time / 1000;
-            const endSec = Math.max(startSec + 0.5, (sub.time + (sub.duration || 3000)) / 1000);
+            const startSec = Math.max(0, sub.time / 1000);
+            const durationSec =
+              typeof sub.duration === 'number' && sub.duration > 0
+                ? sub.duration / 1000
+                : 3.5;
+            const endSec = Math.max(startSec + 0.5, startSec + durationSec);
             const cleanText = cleanSubtitleText(sub.text);
-            const cueKey = `${trackNumber}_${Math.round(startSec * 10)}_${cleanText.slice(0, 15)}`;
+            const cueKey = `${trackNumber}_${sub.time}_${cleanText}`;
             if (cleanText && endSec > startSec && !addedCuesSet.has(cueKey)) {
               addedCuesSet.add(cueKey);
               try {
@@ -362,7 +369,7 @@ export default function VideoPlayer({
           }
         };
 
-        parser.once('tracks', (tracks: any[]) => {
+        initialParser.once('tracks', (tracks: any[]) => {
           if (isCancelled || !videoRef.current) return;
           const mkvDetected: DetectedSubtitle[] = [];
 
@@ -431,149 +438,240 @@ export default function VideoPlayer({
           }
         });
 
-        parser.on('subtitle', (sub: any, trackNumber: number) => {
+        initialParser.on('subtitle', (sub: any, trackNumber: number) => {
           addParsedCue(sub, trackNumber);
         });
 
-        // ── ON-DEMAND SEEK MECHANISM VIA MATROSKA CUES INDEX ──
-        let exactHeaderBuf: Uint8Array | null = null;
-        let cuePoints: { time: number; clusterPos: number }[] = [];
+        // 1. Fetch first 256KB to read MKV Header, Tracks, and SeekHead
+        const headRes = await fetch(effectiveVideoUrl, {
+          headers: { Range: 'bytes=0-262143' },
+          signal: abortController.signal,
+        });
+        if (!headRes.ok || isCancelled) return;
+        const headBuf = new Uint8Array(await headRes.arrayBuffer());
+
+        // Locate segment data offset
         let segStart = 52;
-        const fetchedClusters = new Set<number>();
+        for (let i = 0; i < Math.min(headBuf.length - 4, 1024); i++) {
+          if (
+            headBuf[i] === 0x18 &&
+            headBuf[i + 1] === 0x53 &&
+            headBuf[i + 2] === 0x80 &&
+            headBuf[i + 3] === 0x67
+          ) {
+            segStart = i + 12;
+            break;
+          }
+        }
 
-        // Pre-fetch header and Cues in background so user skips are instant
-        (async () => {
-          try {
-            const headRes = await fetch(effectiveVideoUrl, {
-              headers: { Range: 'bytes=0-16384' },
-              signal: abortController.signal,
+        // Parse tracks from headBuf
+        initialParser.write(headBuf);
+
+        // Find Cues offset from SeekHead
+        let cuesSeekPos: number | null = null;
+        const seekHeadDecoder = new EbmlStreamDecoder({
+          bufferTagIds: [EbmlTagId.SeekHead],
+        });
+        seekHeadDecoder.on('data', (chunk: any) => {
+          if (chunk.id === EbmlTagId.SeekHead) {
+            const seeks = (chunk._children || chunk.Children || []).filter(
+              (c: any) => c.id === EbmlTagId.Seek
+            );
+            for (const s of seeks) {
+              const sChildren = s._children || s.Children || [];
+              const idBuf = sChildren.find((c: any) => c.id === EbmlTagId.SeekID)?.data;
+              const pos = sChildren.find((c: any) => c.id === EbmlTagId.SeekPosition)?.data;
+              if (
+                idBuf &&
+                idBuf.toString('hex') === '1c53bb6b' &&
+                typeof pos === 'number'
+              ) {
+                cuesSeekPos = pos;
+              }
+            }
+          }
+        });
+        seekHeadDecoder.write(headBuf);
+
+        let cuePoints: { time: number; clusterPos: number }[] = [];
+        if (cuesSeekPos !== null && !isCancelled) {
+          const cuesByteOffset = segStart + cuesSeekPos;
+          // Fetch Cues index table (~1MB)
+          const cuesRes = await fetch(effectiveVideoUrl, {
+            headers: { Range: `bytes=${cuesByteOffset}-${cuesByteOffset + 1048576}` },
+            signal: abortController.signal,
+          });
+          if (cuesRes.ok && !isCancelled) {
+            const cuesBuf = new Uint8Array(await cuesRes.arrayBuffer());
+            const cuesDecoder = new EbmlStreamDecoder({
+              bufferTagIds: [EbmlTagId.CuePoint],
             });
-            if (!headRes.ok || isCancelled) return;
-            const headBuf = new Uint8Array(await headRes.arrayBuffer());
+            cuesDecoder.on('data', (chunk: any) => {
+              if (chunk.id === EbmlTagId.CuePoint) {
+                const children = chunk._children || chunk.Children || [];
+                const timeTag = children.find((x: any) => x.id === EbmlTagId.CueTime);
+                const trackPosTag = children.find(
+                  (x: any) => x.id === EbmlTagId.CueTrackPositions
+                );
+                const trackPosChildren =
+                  trackPosTag?._children || trackPosTag?.Children || [];
+                const clusterPosTag = trackPosChildren.find(
+                  (x: any) => x.id === EbmlTagId.CueClusterPosition
+                );
+                if (
+                  timeTag &&
+                  clusterPosTag &&
+                  typeof timeTag.data === 'number' &&
+                  typeof clusterPosTag.data === 'number'
+                ) {
+                  cuePoints.push({ time: timeTag.data, clusterPos: clusterPosTag.data });
+                }
+              }
+            });
+            cuesDecoder.write(cuesBuf);
+          }
+        }
 
-            // Locate segment data start
-            for (let i = 0; i < headBuf.length - 4; i++) {
-              if (headBuf[i] === 0x18 && headBuf[i + 1] === 0x53 && headBuf[i + 2] === 0x80 && headBuf[i + 3] === 0x67) {
-                segStart = i + 12;
+        // Exact header to prepend to clusters when demuxing
+        const exactHeaderBuf = headBuf;
+
+        if (cuePoints.length > 0) {
+          // Sort cuePoints ascending
+          cuePoints.sort((a, b) => a.time - b.time);
+
+          // Track fetched time ranges to avoid redundant fetches
+          const fetchedTimeRanges: { startMs: number; endMs: number }[] = [];
+          const inFlightFetches = new Set<string>();
+
+          const isRangeFetched = (startMs: number, endMs: number) => {
+            return fetchedTimeRanges.some(
+              (r) => r.startMs <= startMs && r.endMs >= endMs
+            );
+          };
+
+          const fetchWindowForTime = async (
+            curTimeSec: number,
+            durationSec: number = 35
+          ) => {
+            if (isCancelled || !exactHeaderBuf || cuePoints.length === 0) return;
+            const targetMs = Math.max(0, Math.floor(curTimeSec * 1000) - 3000);
+            const endTargetMs = targetMs + durationSec * 1000;
+
+            if (isRangeFetched(targetMs, endTargetMs)) return;
+
+            // Binary search to find startIdx (cluster with time <= targetMs)
+            let low = 0;
+            let high = cuePoints.length - 1;
+            let startIdx = 0;
+            while (low <= high) {
+              const mid = Math.floor((low + high) / 2);
+              if (cuePoints[mid].time <= targetMs) {
+                startIdx = mid;
+                low = mid + 1;
+              } else {
+                high = mid - 1;
+              }
+            }
+
+            // Find endIdx (cluster with time >= endTargetMs)
+            let endIdx = Math.min(cuePoints.length - 1, startIdx + 1);
+            for (let i = startIdx; i < cuePoints.length; i++) {
+              endIdx = i;
+              if (cuePoints[i].time >= endTargetMs) {
                 break;
               }
             }
 
-            const { EbmlStreamDecoder, EbmlTagId } = await import('ebml-stream');
-            const seekDecoder = new EbmlStreamDecoder({
-              bufferTagIds: [EbmlTagId.Seek],
-            });
+            const startByte = segStart + cuePoints[startIdx].clusterPos;
+            const endByte = segStart + cuePoints[endIdx].clusterPos;
+            const fetchKey = `${startByte}-${endByte}`;
 
-            let cuesSeekPos: number | null = null;
-            seekDecoder.on('data', (chunk: any) => {
-              if (chunk.id === EbmlTagId.Seek) {
-                const idBuf = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekID)?.data;
-                if (idBuf && idBuf.toString('hex') === '1c53bb6b') {
-                  cuesSeekPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekPosition)?.data;
-                }
-              }
-            });
-            seekDecoder.write(headBuf);
+            if (inFlightFetches.has(fetchKey)) return;
+            inFlightFetches.add(fetchKey);
 
-            if (cuesSeekPos !== null && !isCancelled) {
-              const cuesByteOffset = segStart + cuesSeekPos;
-              const cuesRes = await fetch(effectiveVideoUrl, {
-                headers: { Range: `bytes=${cuesByteOffset}-${cuesByteOffset + 400000}` },
+            try {
+              const chunkRes = await fetch(effectiveVideoUrl, {
+                headers: { Range: `bytes=${startByte}-${endByte}` },
                 signal: abortController.signal,
               });
-              if (cuesRes.ok && !isCancelled) {
-                const cuesBuf = new Uint8Array(await cuesRes.arrayBuffer());
-                const cuesDecoder = new EbmlStreamDecoder({
-                  bufferTagIds: [EbmlTagId.CuePoint],
+              if (chunkRes.ok && !isCancelled) {
+                const chunkBuf = new Uint8Array(await chunkRes.arrayBuffer());
+                const seekParser = new SubtitleParser();
+                seekParser.on('subtitle', (sub: any, trackNumber: number) => {
+                  addParsedCue(sub, trackNumber);
                 });
-                cuesDecoder.on('data', (chunk: any) => {
-                  if (chunk.id === EbmlTagId.CuePoint) {
-                    const time = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTime)?.data;
-                    const trackPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTrackPositions);
-                    const clusterPos = trackPos?.Children?.find((x: any) => x.id === EbmlTagId.CueClusterPosition)?.data;
-                    if (time !== undefined && clusterPos !== undefined) {
-                      cuePoints.push({ time, clusterPos });
-                    }
-                  }
-                });
-                cuesDecoder.write(cuesBuf);
+                seekParser.write(exactHeaderBuf);
+                seekParser.write(chunkBuf);
 
-                if (cuePoints.length > 0) {
-                  const firstClusterByte = segStart + cuePoints[0].clusterPos;
-                  exactHeaderBuf = headBuf.slice(0, firstClusterByte);
-                }
+                fetchedTimeRanges.push({
+                  startMs: cuePoints[startIdx].time,
+                  endMs: cuePoints[endIdx].time,
+                });
+              }
+            } catch (e) {
+              // Fetch error non-fatal
+            } finally {
+              inFlightFetches.delete(fetchKey);
+            }
+          };
+
+          // Fetch initial window at current playback or resume time
+          const initTime =
+            videoElement &&
+            typeof videoElement.currentTime === 'number' &&
+            videoElement.currentTime > 0
+              ? videoElement.currentTime
+              : resumeTime || 0;
+          fetchWindowForTime(initTime, 40);
+
+          // Seek handler
+          const onUserSeek = () => {
+            if (videoElement && typeof videoElement.currentTime === 'number') {
+              fetchWindowForTime(videoElement.currentTime, 35);
+            }
+          };
+
+          // Continuous playback prefetch handler
+          const onTimeUpdatePrefetch = () => {
+            if (videoElement && typeof videoElement.currentTime === 'number') {
+              const curMs = videoElement.currentTime * 1000;
+              // If within 10 seconds of unbuffered future, fetch next 35s window
+              if (!isRangeFetched(curMs, curMs + 10000)) {
+                fetchWindowForTime(videoElement.currentTime, 35);
               }
             }
-          } catch (e) {
-            // SeekHead prefetch non-fatal
-          }
-        })();
+          };
 
-        // Handler to fetch cues at any seeked time
-        const fetchCuesAtTime = async (curTimeSec: number) => {
-          if (!exactHeaderBuf || cuePoints.length === 0 || isCancelled) return;
-          const targetMs = curTimeSec * 1000;
-          let chosen = cuePoints[0];
-          for (let i = 0; i < cuePoints.length; i++) {
-            if (cuePoints[i].time <= targetMs) {
-              chosen = cuePoints[i];
-            } else {
-              break;
-            }
-          }
-          if (fetchedClusters.has(chosen.clusterPos)) return;
-          fetchedClusters.add(chosen.clusterPos);
+          videoElement.addEventListener('seeking', onUserSeek);
+          videoElement.addEventListener('seeked', onUserSeek);
+          videoElement.addEventListener('timeupdate', onTimeUpdatePrefetch);
 
-          try {
-            const clusterOffset = segStart + chosen.clusterPos;
-            const res = await fetch(effectiveVideoUrl, {
-              headers: { Range: `bytes=${clusterOffset}-${clusterOffset + 6000000}` },
-              signal: abortController.signal,
-            });
-            if (res.ok && !isCancelled) {
-              const clusterBuf = new Uint8Array(await res.arrayBuffer());
-              const seekParser = new SubtitleParser();
-              seekParser.on('subtitle', (sub: any, trackNumber: number) => {
-                addParsedCue(sub, trackNumber);
-              });
-              seekParser.write(exactHeaderBuf);
-              seekParser.write(clusterBuf);
-            }
-          } catch (e) {}
-        };
-
-        const onUserSeek = () => {
-          if (videoElement && typeof videoElement.currentTime === 'number') {
-            fetchCuesAtTime(videoElement.currentTime);
-          }
-        };
-
-        videoElement.addEventListener('seeking', onUserSeek);
-        videoElement.addEventListener('seeked', onUserSeek);
-
-        mkvSeekCleanupRef.current = () => {
-          videoElement.removeEventListener('seeking', onUserSeek);
-          videoElement.removeEventListener('seeked', onUserSeek);
-        };
-
-        // Fetch streaming chunks from MKV file for linear forward playback
-        const res = await fetch(effectiveVideoUrl, {
-          signal: abortController.signal,
-        });
-
-        if (res.body) {
-          const reader = res.body.getReader();
-          while (!isCancelled) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-              parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+          mkvSeekCleanupRef.current = () => {
+            videoElement.removeEventListener('seeking', onUserSeek);
+            videoElement.removeEventListener('seeked', onUserSeek);
+            videoElement.removeEventListener('timeupdate', onTimeUpdatePrefetch);
+          };
+        } else {
+          // Fallback: If no Cues table in MKV, stream linearly
+          const res = await fetch(effectiveVideoUrl, {
+            signal: abortController.signal,
+          });
+          if (res.body) {
+            const reader = res.body.getReader();
+            while (!isCancelled) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value) {
+                initialParser.write(
+                  new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+                );
+              }
             }
           }
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.log('MKV subtitle stream complete or handled:', err?.message);
+          console.log('MKV subtitle demuxing handled:', err?.message);
         }
       }
     };
