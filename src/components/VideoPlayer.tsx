@@ -130,7 +130,30 @@ function cleanSubtitleText(raw: string): string {
     .replace(/<[^>]+>/g, '')
     .replace(/\\N/g, '\n')
     .replace(/\\n/g, '\n')
+    .replace(/\\h/g, ' ')
+    .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, '')
     .trim();
+}
+
+function loadSubtitlesOctopusScript(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') return reject(new Error('Window not available'));
+    if ((window as any).SubtitlesOctopus) {
+      return resolve((window as any).SubtitlesOctopus);
+    }
+    const existing = document.querySelector('script[src="/subtitles-octopus/subtitles-octopus.js"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve((window as any).SubtitlesOctopus));
+      existing.addEventListener('error', reject);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = '/subtitles-octopus/subtitles-octopus.js';
+    script.async = true;
+    script.onload = () => resolve((window as any).SubtitlesOctopus);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
 }
 
 export default function VideoPlayer({
@@ -159,6 +182,9 @@ export default function VideoPlayer({
   const playerInstanceRef = useRef<any>(null);
   const hlsInstanceRef = useRef<any>(null);
   const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
+  const octopusInstanceRef = useRef<any>(null);
+  const extractorRef = useRef<any>(null);
+  const activeTrackNumberRef = useRef<number | null>(null);
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const mkvSeekCleanupRef = useRef<(() => void) | null>(null);
@@ -334,229 +360,115 @@ export default function VideoPlayer({
       });
     }
 
-    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER WITH ON-DEMAND SEEK ──
+    // ── MKV EMBEDDED SOFTCODED SUBTITLES STREAMING DEMUXER WITH SUBTITLESOCTOPUS ──
     const initMkvDemuxer = async () => {
       if (!isMkv) return;
       try {
-        const { SubtitleParser } = await import('matroska-subtitles');
+        const { MkvSubtitleExtractor } = await import('@/lib/mkvExtractStream');
         if (isCancelled) return;
 
-        const parser = new SubtitleParser();
-        const addedCuesSet = new Set<string>();
+        let activeTrackNumber: number | null = null;
+        let updateTimeout: any = null;
 
-        const addParsedCue = (sub: any, trackNumber: number) => {
-          if (isCancelled) return;
-          const targetTrack = mkvTracksMapRef.current.get(trackNumber);
-          if (targetTrack && typeof sub.time === 'number') {
-            const startSec = sub.time / 1000;
-            const endSec = Math.max(startSec + 0.5, (sub.time + (sub.duration || 3000)) / 1000);
-            const cleanText = cleanSubtitleText(sub.text);
-            const cueKey = `${trackNumber}_${Math.round(startSec * 10)}_${cleanText.slice(0, 15)}`;
-            if (cleanText && endSec > startSec && !addedCuesSet.has(cueKey)) {
-              addedCuesSet.add(cueKey);
+        const scheduleOctopusUpdate = () => {
+          if (updateTimeout) return;
+          updateTimeout = setTimeout(() => {
+            updateTimeout = null;
+            if (isCancelled || !octopusInstanceRef.current || activeTrackNumber === null) return;
+            const assContent = extractor.getAssScript(activeTrackNumber);
+            if (assContent) {
               try {
-                const cue = new VTTCue(startSec, endSec, cleanText);
-                targetTrack.addCue(cue);
+                octopusInstanceRef.current.setTrack(assContent);
               } catch (e) {}
             }
-          }
+          }, 300);
         };
 
-        parser.once('tracks', (tracks: any[]) => {
-          if (isCancelled || !videoRef.current) return;
-          const mkvDetected: DetectedSubtitle[] = [];
+        const extractor = new MkvSubtitleExtractor({
+          onTracks: async (tracks) => {
+            if (isCancelled || !videoRef.current || tracks.length === 0) return;
 
-          const hasIndo = tracks.some((t) => {
-            const l = (t.language || '').toLowerCase();
-            const n = (t.name || '').toLowerCase();
-            return l === 'ind' || l === 'id' || n.includes('indo');
-          });
-
-          tracks.forEach((t) => {
-            const trackNumber = t.number;
-            const rawLang = (t.language || '').toLowerCase();
-            const rawName = (t.name || '').toLowerCase();
-
-            const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
-            const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || (!rawLang && hasIndo);
-
-            const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'und');
-            const langLabel = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : getLanguageLabel(langCode, t.name));
-
-            if (videoRef.current) {
-              try {
-                const textTrack = videoRef.current.addTextTrack(
-                  'subtitles',
-                  langLabel,
-                  langCode
-                );
-                textTrack.mode = 'hidden';
-                mkvTracksMapRef.current.set(trackNumber, textTrack);
-              } catch (e) {
-                console.error('Failed to addTextTrack for MKV subtitle:', e);
-              }
-            }
-
-            mkvDetected.push({
-              id: `mkv-${trackNumber}`,
-              label: langLabel,
-              language: langCode,
-              type: 'mkv',
-              trackNumber,
+            const hasIndo = tracks.some((t) => {
+              const l = (t.language || '').toLowerCase();
+              const n = (t.name || '').toLowerCase();
+              return l === 'ind' || l === 'id' || n.includes('indo');
             });
-          });
 
-          // Auto-enable Indonesian subtitle by default if available, or first track
-          if (mkvDetected.length > 0) {
-            const indoTrack = mkvDetected.find(
-              (t) =>
-                t.language === 'ind' ||
-                t.language === 'id' ||
-                t.label.toLowerCase().includes('indo')
-            );
-            const chosen = indoTrack || mkvDetected[0];
-            if (chosen && chosen.trackNumber) {
-              const target = mkvTracksMapRef.current.get(chosen.trackNumber);
-              if (target) {
-                target.mode = 'showing';
-              }
-            }
-          }
+            // Choose Indonesian track by default if available, or first track
+            const chosen =
+              tracks.find(
+                (t) =>
+                  t.language === 'ind' ||
+                  t.language === 'id' ||
+                  (t.name || '').toLowerCase().includes('indo')
+              ) || tracks[0];
 
-          // Inform Plyr to refresh captions menu so newly added tracks are recognized
-          if (playerInstanceRef.current && (playerInstanceRef.current as any).captions) {
+            activeTrackNumber = chosen.trackNumber;
+            activeTrackNumberRef.current = chosen.trackNumber;
+
+            // Load SubtitlesOctopus script and attach to the video element
             try {
-              (playerInstanceRef.current as any).captions.setup();
-            } catch (e) {}
-          }
+              const SubtitlesOctopusClass = await loadSubtitlesOctopusScript();
+              if (isCancelled || !videoRef.current) return;
+
+              const initialAss = extractor.getAssScript(chosen.trackNumber);
+              const octopus = new SubtitlesOctopusClass({
+                video: videoRef.current,
+                subContent: initialAss,
+                workerUrl: '/subtitles-octopus/subtitles-octopus-worker.js',
+              });
+
+              octopusInstanceRef.current = octopus;
+            } catch (err) {
+              console.error('Failed to initialize SubtitlesOctopus:', err);
+            }
+
+            // Register native hidden TextTracks for Plyr CC menu integration
+            tracks.forEach((t) => {
+              const rawLang = (t.language || '').toLowerCase();
+              const rawName = (t.name || '').toLowerCase();
+              const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
+              const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || (!rawLang && hasIndo);
+              const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'und');
+              const langLabel = t.name || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : getLanguageLabel(langCode, t.name));
+
+              if (videoRef.current) {
+                try {
+                  const textTrack = videoRef.current.addTextTrack('subtitles', langLabel, langCode);
+                  textTrack.mode = 'hidden';
+                  mkvTracksMapRef.current.set(t.trackNumber, textTrack);
+                } catch (e) {}
+              }
+            });
+
+            if (playerInstanceRef.current && (playerInstanceRef.current as any).captions) {
+              try {
+                (playerInstanceRef.current as any).captions.setup();
+              } catch (e) {}
+            }
+          },
+
+          onDialogue: (dialogue) => {
+            if (isCancelled) return;
+            if (activeTrackNumber !== null && dialogue.trackNumber === activeTrackNumber) {
+              scheduleOctopusUpdate();
+            }
+          },
         });
 
-        parser.on('subtitle', (sub: any, trackNumber: number) => {
-          addParsedCue(sub, trackNumber);
-        });
-
-        // ── ON-DEMAND SEEK MECHANISM VIA MATROSKA CUES INDEX ──
-        let exactHeaderBuf: Uint8Array | null = null;
-        let cuePoints: { time: number; clusterPos: number }[] = [];
-        let segStart = 52;
-        const fetchedClusters = new Set<number>();
-
-        // Pre-fetch header and Cues in background so user skips are instant
-        (async () => {
-          try {
-            const headRes = await fetch(effectiveVideoUrl, {
-              headers: { Range: 'bytes=0-16384' },
-              signal: abortController.signal,
-            });
-            if (!headRes.ok || isCancelled) return;
-            const headBuf = new Uint8Array(await headRes.arrayBuffer());
-
-            // Locate segment data start
-            for (let i = 0; i < headBuf.length - 4; i++) {
-              if (headBuf[i] === 0x18 && headBuf[i + 1] === 0x53 && headBuf[i + 2] === 0x80 && headBuf[i + 3] === 0x67) {
-                segStart = i + 12;
-                break;
-              }
-            }
-
-            const { EbmlStreamDecoder, EbmlTagId } = await import('ebml-stream');
-            const seekDecoder = new EbmlStreamDecoder({
-              bufferTagIds: [EbmlTagId.Seek],
-            });
-
-            let cuesSeekPos: number | null = null;
-            seekDecoder.on('data', (chunk: any) => {
-              if (chunk.id === EbmlTagId.Seek) {
-                const idBuf = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekID)?.data;
-                if (idBuf && idBuf.toString('hex') === '1c53bb6b') {
-                  cuesSeekPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.SeekPosition)?.data;
-                }
-              }
-            });
-            seekDecoder.write(headBuf);
-
-            if (cuesSeekPos !== null && !isCancelled) {
-              const cuesByteOffset = segStart + cuesSeekPos;
-              const cuesRes = await fetch(effectiveVideoUrl, {
-                headers: { Range: `bytes=${cuesByteOffset}-${cuesByteOffset + 400000}` },
-                signal: abortController.signal,
-              });
-              if (cuesRes.ok && !isCancelled) {
-                const cuesBuf = new Uint8Array(await cuesRes.arrayBuffer());
-                const cuesDecoder = new EbmlStreamDecoder({
-                  bufferTagIds: [EbmlTagId.CuePoint],
-                });
-                cuesDecoder.on('data', (chunk: any) => {
-                  if (chunk.id === EbmlTagId.CuePoint) {
-                    const time = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTime)?.data;
-                    const trackPos = chunk.Children?.find((x: any) => x.id === EbmlTagId.CueTrackPositions);
-                    const clusterPos = trackPos?.Children?.find((x: any) => x.id === EbmlTagId.CueClusterPosition)?.data;
-                    if (time !== undefined && clusterPos !== undefined) {
-                      cuePoints.push({ time, clusterPos });
-                    }
-                  }
-                });
-                cuesDecoder.write(cuesBuf);
-
-                if (cuePoints.length > 0) {
-                  const firstClusterByte = segStart + cuePoints[0].clusterPos;
-                  exactHeaderBuf = headBuf.slice(0, firstClusterByte);
-                }
-              }
-            }
-          } catch (e) {
-            // SeekHead prefetch non-fatal
-          }
-        })();
-
-        // Handler to fetch cues at any seeked time
-        const fetchCuesAtTime = async (curTimeSec: number) => {
-          if (!exactHeaderBuf || cuePoints.length === 0 || isCancelled) return;
-          const targetMs = curTimeSec * 1000;
-          let chosen = cuePoints[0];
-          for (let i = 0; i < cuePoints.length; i++) {
-            if (cuePoints[i].time <= targetMs) {
-              chosen = cuePoints[i];
-            } else {
-              break;
-            }
-          }
-          if (fetchedClusters.has(chosen.clusterPos)) return;
-          fetchedClusters.add(chosen.clusterPos);
-
-          try {
-            const clusterOffset = segStart + chosen.clusterPos;
-            const res = await fetch(effectiveVideoUrl, {
-              headers: { Range: `bytes=${clusterOffset}-${clusterOffset + 6000000}` },
-              signal: abortController.signal,
-            });
-            if (res.ok && !isCancelled) {
-              const clusterBuf = new Uint8Array(await res.arrayBuffer());
-              const seekParser = new SubtitleParser();
-              seekParser.on('subtitle', (sub: any, trackNumber: number) => {
-                addParsedCue(sub, trackNumber);
-              });
-              seekParser.write(exactHeaderBuf);
-              seekParser.write(clusterBuf);
-            }
-          } catch (e) {}
-        };
-
-        const onUserSeek = () => {
-          if (videoElement && typeof videoElement.currentTime === 'number') {
-            fetchCuesAtTime(videoElement.currentTime);
-          }
-        };
-
-        videoElement.addEventListener('seeking', onUserSeek);
-        videoElement.addEventListener('seeked', onUserSeek);
+        extractorRef.current = extractor;
+        await extractor.init();
+        if (isCancelled) {
+          extractor.destroy();
+          return;
+        }
 
         mkvSeekCleanupRef.current = () => {
-          videoElement.removeEventListener('seeking', onUserSeek);
-          videoElement.removeEventListener('seeked', onUserSeek);
+          if (updateTimeout) clearTimeout(updateTimeout);
+          extractor.destroy();
         };
 
-        // Fetch streaming chunks from MKV file for linear forward playback
+        // Stream MKV file chunks linearly and parse with zero lag
         const res = await fetch(effectiveVideoUrl, {
           signal: abortController.signal,
         });
@@ -567,7 +479,7 @@ export default function VideoPlayer({
             const { done, value } = await reader.read();
             if (done) break;
             if (value) {
-              parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+              extractor.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
             }
           }
         }
@@ -707,6 +619,42 @@ export default function VideoPlayer({
           }
         });
 
+        player.on('captionsenabled', () => {
+          if (octopusInstanceRef.current && activeTrackNumberRef.current !== null) {
+            const ass = extractorRef.current?.getAssScript(activeTrackNumberRef.current);
+            if (ass) {
+              octopusInstanceRef.current.setTrack(ass);
+            }
+          }
+        });
+
+        player.on('captionsdisabled', () => {
+          if (octopusInstanceRef.current) {
+            octopusInstanceRef.current.freeTrack();
+          }
+        });
+
+        player.on('languagechange', () => {
+          if (
+            typeof player.currentTrack === 'number' &&
+            player.currentTrack >= 0 &&
+            videoElement &&
+            videoElement.textTracks &&
+            videoElement.textTracks[player.currentTrack]
+          ) {
+            const selectedTrack = videoElement.textTracks[player.currentTrack];
+            mkvTracksMapRef.current.forEach((tTrack, tNum) => {
+              if (tTrack.label === selectedTrack.label) {
+                activeTrackNumberRef.current = tNum;
+                if (octopusInstanceRef.current) {
+                  const ass = extractorRef.current?.getAssScript(tNum);
+                  if (ass) octopusInstanceRef.current.setTrack(ass);
+                }
+              }
+            });
+          }
+        });
+
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
         initMkvDemuxer();
@@ -723,6 +671,12 @@ export default function VideoPlayer({
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
+      }
+      if (octopusInstanceRef.current) {
+        try {
+          octopusInstanceRef.current.dispose();
+        } catch (e) {}
+        octopusInstanceRef.current = null;
       }
       if (playerInstanceRef.current) {
         try {

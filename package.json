@@ -17,6 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1125.0",
     "autoprefixer": "^10.0.1",
+    "ebml": "^2.2.4",
     "gray-matter": "^4.0.3",
     "hls.js": "^1.7.1",
     "lucide-react": "^0.400.0",
