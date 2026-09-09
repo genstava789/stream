@@ -232,12 +232,16 @@ export const EditModal: React.FC<EditModalProps> = ({
   };
 
   const updateFrontmatter = (key: string, value: any) => {
+    const updated = {
+      ...editingItem.frontmatter,
+      [key]: value,
+    };
+    if (key === 'videourl') {
+      updated.video_url = value;
+    }
     setEditingItem({
       ...editingItem,
-      frontmatter: {
-        ...editingItem.frontmatter,
-        [key]: value,
-      },
+      frontmatter: updated,
     });
   };
 

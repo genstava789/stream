@@ -362,11 +362,13 @@ export const CreateModal: React.FC<CreateModalProps> = ({
     try {
       setSubmitError(null);
       const payload: any = {
+        contentType: contentType,
         type: contentType,
         tmdb_id: formTmdbId,
         title: formTitle,
         slug: formSlug,
         videourl: formVideoUrl,
+        video_url: formVideoUrl,
         poster: formPoster,
         image_url: formPoster,
         desc: formDesc,

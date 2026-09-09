@@ -1175,7 +1175,7 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
  */
 export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
   ensureDirectories();
-  const { contentType = 'movie' } = body;
+  const contentType = body.contentType || body.type || 'movie';
   const { token } = ghConfig;
   const isProductionOrCloud = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
 
@@ -1558,11 +1558,11 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       savedEpisodesCount,
     };
   } else if (contentType === 'tv_episode') {
+    const rawShowSlug = body.showSlug || body.show_slug || body.formTvShowSlug;
+    const rawSeason = body.season || body.seasonFolder || 's1';
+    const rawEpisode = body.episode || body.slug || 'e1';
+    const rawVideo = body.videourl || body.video_url || body.videoUrl || '';
     const {
-      showSlug,
-      season = 's1',
-      episode = 'e1',
-      videourl,
       title,
       desc,
       poster,
@@ -1573,18 +1573,18 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       content = '',
     } = body;
 
-    if (!showSlug) throw new Error('showSlug is required for TV episode');
-    const cleanVideo = cleanVideoUrl(videourl);
+    if (!rawShowSlug) throw new Error('showSlug is required for TV episode');
+    const cleanVideo = cleanVideoUrl(rawVideo);
     if (!cleanVideo || !isValidVideoUrl(cleanVideo)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
-    const cleanShowSlug = slugify(showSlug);
-    const cleanSeason = season ? slugify(season) : 's1';
-    const cleanEp = episode
-      ? episode.startsWith('e') || episode.startsWith('ep')
-        ? `e${episode.replace(/\D/g, '') || '1'}`
-        : slugify(episode)
+    const cleanShowSlug = slugify(rawShowSlug);
+    const cleanSeason = rawSeason ? slugify(rawSeason) : 's1';
+    const cleanEp = rawEpisode
+      ? rawEpisode.startsWith('e') || rawEpisode.startsWith('ep')
+        ? `e${rawEpisode.replace(/\D/g, '') || '1'}`
+        : slugify(rawEpisode)
       : 'e1';
 
     relativePath = `tv/${cleanShowSlug}/${cleanSeason}/${cleanEp}.md`;
@@ -1749,7 +1749,9 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
         const ext = extractTmdbIdAndType(String(val));
         cleanFrontmatter[key] = ext.id ? Number(ext.id) : (isNaN(Number(val)) ? val : Number(val));
       } else if (key === 'videourl' || key === 'video_url') {
-        cleanFrontmatter[key] = cleanVideoUrl(String(val)) || String(val).trim();
+        const cleaned = cleanVideoUrl(String(val)) || String(val).trim();
+        cleanFrontmatter.videourl = cleaned;
+        cleanFrontmatter.video_url = cleaned;
       } else if (key === 'rating' || key === 'episode_number' || key === 'season_number') {
         cleanFrontmatter[key] = isNaN(Number(val)) ? val : Number(val);
       } else if (key === 'featured') {
@@ -1808,7 +1810,7 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
     const showSlug = relativePath.split('/')[1];
     const mongoEps = Array.isArray(body.episodes)
       ? body.episodes.map((ep: any) => {
-          const epVideo = cleanVideoUrl(ep.videourl || (ep.frontmatter && (ep.frontmatter.videourl || ep.frontmatter.video_url)) || '');
+          const epVideo = cleanVideoUrl(ep.videourl || ep.video_url || (ep.frontmatter && (ep.frontmatter.videourl || ep.frontmatter.video_url)) || '');
           if (epVideo && !isValidVideoUrl(epVideo)) {
             throw new Error(`URL Video untuk Episode ${ep.episode || ep.slug || ep.title} tidak valid.`);
           }
@@ -1848,7 +1850,8 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
     }
   } else {
     // Single TV episode update: tv/[showSlug]/[season]/[episode].md
-    if (cleanFrontmatter.videourl && !isValidVideoUrl(cleanFrontmatter.videourl)) {
+    const epVideoUrl = cleanFrontmatter.videourl || cleanFrontmatter.video_url;
+    if (epVideoUrl && !isValidVideoUrl(epVideoUrl)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
@@ -1948,7 +1951,7 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
 
       const epFrontmatter: Record<string, any> = {
         title: ep.title || (ep.frontmatter && ep.frontmatter.title) || `Episode ${epNum.replace(/\D/g, '') || '1'}`,
-        videourl: cleanVideoUrl(ep.videourl || (ep.frontmatter && (ep.frontmatter.videourl || ep.frontmatter.video_url)) || '') || '',
+        videourl: cleanVideoUrl(ep.videourl || ep.video_url || (ep.frontmatter && (ep.frontmatter.videourl || ep.frontmatter.video_url)) || '') || '',
       };
 
       const img = ep.image_url || (ep.frontmatter && ep.frontmatter.image_url);

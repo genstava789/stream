@@ -148,7 +148,7 @@ export function serializeTinaTVEpisode(
   bodyContent: string = ''
 ): string {
   const cleanData: Record<string, any> = {
-    videourl: cleanVideoUrl(frontmatter.videourl || '') || frontmatter.videourl || '',
+    videourl: cleanVideoUrl(frontmatter.videourl || frontmatter.video_url || '') || frontmatter.videourl || frontmatter.video_url || '',
   };
 
   if (frontmatter.title && String(frontmatter.title).trim()) {
