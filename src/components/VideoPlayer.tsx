@@ -170,6 +170,8 @@ export default function VideoPlayer({
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const mkvSeekCleanupRef = useRef<(() => void) | null>(null);
+  const savedResumeTimeRef = useRef<number | null>(null);
+  const fetchClusterForTimeRef = useRef<((t: number) => void) | null>(null);
 
   const effectiveVideoUrl = cleanVideoUrl(videoUrl) || videoUrl || '';
   const onNextEpisodeRef = useRef(onNextEpisode);
@@ -179,7 +181,12 @@ export default function VideoPlayer({
   const youtubeId = getYouTubeId(effectiveVideoUrl);
   const vimeoId = getVimeoId(effectiveVideoUrl);
 
+  const pagePath = typeof window !== 'undefined' ? window.location.pathname : '';
   const storageKey =
+    typeof window !== 'undefined' && effectiveVideoUrl
+      ? `filmes_progress_${encodeURIComponent(pagePath || effectiveVideoUrl.split('?')[0])}`
+      : null;
+  const legacyStorageKey =
     typeof window !== 'undefined' && effectiveVideoUrl
       ? `filmes_progress_${encodeURIComponent(effectiveVideoUrl.split('?')[0])}`
       : null;
@@ -227,16 +234,21 @@ export default function VideoPlayer({
     setShowResumePrompt(false);
     setShowNextPrompt(false);
     setResumeTime(null);
+    savedResumeTimeRef.current = null;
     mkvTracksMapRef.current.clear();
 
     // Check saved playback progress
     if (storageKey) {
       try {
-        const saved = localStorage.getItem(storageKey);
+        let saved = localStorage.getItem(storageKey);
+        if (!saved && legacyStorageKey) {
+          saved = localStorage.getItem(legacyStorageKey);
+        }
         if (saved) {
           const parsed = parseFloat(saved);
           if (!isNaN(parsed) && parsed > 5) {
             setResumeTime(parsed);
+            savedResumeTimeRef.current = parsed;
             setShowResumePrompt(true);
           }
         }
@@ -260,10 +272,47 @@ export default function VideoPlayer({
       if (!isCancelled) {
         setIsBuffering(false);
         setIsPlaying(true);
-        // Requirement: dismiss continue watching popup on playback start
-        setShowResumePrompt(false);
       }
     };
+
+    const saveProgress = () => {
+      if (!storageKey) return;
+      const curTime = playerInstanceRef.current
+        ? playerInstanceRef.current.currentTime
+        : (videoElement ? videoElement.currentTime : 0);
+      const dur =
+        (playerInstanceRef.current && playerInstanceRef.current.duration) ||
+        (videoElement && videoElement.duration) ||
+        0;
+
+      if (typeof curTime === 'number' && !isNaN(curTime) && curTime > 5 && (dur === 0 || curTime < dur - 10)) {
+        try {
+          const floored = Math.floor(curTime);
+          localStorage.setItem(storageKey, String(floored));
+          if (legacyStorageKey) localStorage.setItem(legacyStorageKey, String(floored));
+          lastSavedTimeRef.current = floored;
+        } catch (e) {}
+      } else if (typeof curTime === 'number' && dur > 0 && curTime >= dur - 10) {
+        try {
+          localStorage.removeItem(storageKey);
+          if (legacyStorageKey) localStorage.removeItem(legacyStorageKey);
+        } catch (e) {}
+      }
+    };
+
+    const handlePageExit = () => {
+      saveProgress();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveProgress();
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageExit);
+    window.addEventListener('beforeunload', handlePageExit);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     videoElement.addEventListener('error', onError);
     videoElement.addEventListener('waiting', onWaiting);
@@ -601,6 +650,10 @@ export default function VideoPlayer({
           } catch (e) {}
         };
 
+        fetchClusterForTimeRef.current = (t: number) => {
+          fetchClusterForTime(t);
+        };
+
         // Listen to seeked event: fetch cluster at new seek location immediately
         let seekDebounce: NodeJS.Timeout | null = null;
         const onUserSeeked = () => {
@@ -631,23 +684,8 @@ export default function VideoPlayer({
           if (seekDebounce) clearTimeout(seekDebounce);
           videoElement.removeEventListener('seeked', onUserSeeked);
           videoElement.removeEventListener('timeupdate', onTimeUpdate);
+          fetchClusterForTimeRef.current = null;
         };
-
-        // Linear forward reader stream
-        const res = await fetch(effectiveVideoUrl, {
-          signal: abortController.signal,
-        });
-
-        if (res.body) {
-          const reader = res.body.getReader();
-          while (!isCancelled) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-              parser.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-            }
-          }
-        }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.log('MKV subtitle demuxer complete or handled:', err?.message);
@@ -729,51 +767,63 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
-        // Direct Play in Player Dismisses Continue Watching Prompt
+        // If user presses play and there is saved progress near start, auto-resume
         player.on('play', () => {
           setIsPlaying(true);
-          setShowResumePrompt(false);
+          if (savedResumeTimeRef.current && savedResumeTimeRef.current > 5 && (player.currentTime || 0) < 2) {
+            const target = savedResumeTimeRef.current;
+            savedResumeTimeRef.current = null;
+            setShowResumePrompt(false);
+            try {
+              player.currentTime = target;
+              if (videoElement) videoElement.currentTime = target;
+              if (fetchClusterForTimeRef.current) {
+                fetchClusterForTimeRef.current(target);
+                fetchClusterForTimeRef.current(target + 6);
+              }
+            } catch (e) {}
+          }
         });
 
         player.on('playing', () => {
           setIsPlaying(true);
           setIsBuffering(false);
-          setShowResumePrompt(false);
         });
 
         player.on('seeking', () => {
           setShowResumePrompt(false);
+          savedResumeTimeRef.current = null;
+        });
+
+        player.on('seeked', () => {
+          saveProgress();
         });
 
         player.on('pause', () => {
           setIsPlaying(false);
+          saveProgress();
         });
 
         player.on('waiting', () => {
           setIsBuffering(true);
         });
 
-        // Track and persist playback progress
+        // Track and persist playback progress every 3 seconds
         player.on('timeupdate', () => {
           const cur = Math.floor(player.currentTime);
-          const dur = Math.floor(player.duration || 0);
-
-          if (cur > 5 && (dur === 0 || cur < dur - 10)) {
-            if (Math.abs(cur - lastSavedTimeRef.current) >= 3 && storageKey) {
-              lastSavedTimeRef.current = cur;
-              try {
-                localStorage.setItem(storageKey, String(cur));
-              } catch (e) {}
-            }
+          if (Math.abs(cur - lastSavedTimeRef.current) >= 3) {
+            saveProgress();
           }
         });
 
         player.on('ended', () => {
           setIsPlaying(false);
           setShowResumePrompt(false);
+          savedResumeTimeRef.current = null;
           if (storageKey) {
             try {
               localStorage.removeItem(storageKey);
+              if (legacyStorageKey) localStorage.removeItem(legacyStorageKey);
             } catch (e) {}
           }
 
@@ -837,6 +887,10 @@ export default function VideoPlayer({
     return () => {
       isCancelled = true;
       abortController.abort();
+      saveProgress();
+      window.removeEventListener('pagehide', handlePageExit);
+      window.removeEventListener('beforeunload', handlePageExit);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
@@ -898,25 +952,50 @@ export default function VideoPlayer({
     };
   }, [showNextPrompt]);
 
+  // Auto-dismiss resume banner after 12 seconds if playback is active
+  useEffect(() => {
+    if (showResumePrompt && isPlaying) {
+      const t = setTimeout(() => {
+        setShowResumePrompt(false);
+      }, 12000);
+      return () => clearTimeout(t);
+    }
+  }, [showResumePrompt, isPlaying]);
+
   // Handle Resume Playback button action
   const handleResumePlayback = () => {
-    if (playerInstanceRef.current && resumeTime) {
+    if (!resumeTime) return;
+    const target = resumeTime;
+    setShowResumePrompt(false);
+    savedResumeTimeRef.current = null;
+
+    if (videoRef.current) {
       try {
-        playerInstanceRef.current.currentTime = resumeTime;
+        videoRef.current.currentTime = target;
+      } catch (e) {}
+    }
+    if (playerInstanceRef.current) {
+      try {
+        playerInstanceRef.current.currentTime = target;
         playerInstanceRef.current.play();
       } catch (e) {
         console.error('Failed to seek player:', e);
       }
     }
-    setShowResumePrompt(false);
+    if (fetchClusterForTimeRef.current) {
+      fetchClusterForTimeRef.current(target);
+      fetchClusterForTimeRef.current(target + 6);
+    }
   };
 
   // Handle Dismiss Resume button action
   const handleDismissResume = () => {
     setShowResumePrompt(false);
+    savedResumeTimeRef.current = null;
     if (storageKey) {
       try {
         localStorage.removeItem(storageKey);
+        if (legacyStorageKey) localStorage.removeItem(legacyStorageKey);
       } catch (e) {}
     }
   };
@@ -926,17 +1005,19 @@ export default function VideoPlayer({
       id="video-player-section"
       className="w-full transition-all duration-500 ease-in-out relative select-none"
     >
-      {/* Ambient Backlight Glow */}
+      {/* Ambient Backlight Glow - disabled during playback for maximum mobile performance */}
       <div className="relative group">
-        <div
-          className="absolute -inset-1 opacity-25 group-hover:opacity-40 transition duration-1000 blur-2xl -z-10"
-          style={{
-            background:
-              'radial-gradient(ellipse at center, rgba(6, 182, 212, 0.4) 0%, rgba(124, 58, 237, 0.3) 50%, transparent 80%)',
-          }}
-        />
+        {!isPlaying && (
+          <div
+            className="absolute -inset-1 opacity-25 group-hover:opacity-40 transition duration-1000 blur-2xl -z-10"
+            style={{
+              background:
+                'radial-gradient(ellipse at center, rgba(6, 182, 212, 0.4) 0%, rgba(124, 58, 237, 0.3) 50%, transparent 80%)',
+            }}
+          />
+        )}
 
-        {/* Clean Outer Player Frame */}
+        {/* Clean Outer Player Frame with hardware acceleration for smooth mobile scrolling */}
         <div
           className="relative rounded-none lg:rounded-2xl overflow-hidden shadow-2xl transition-all duration-300"
           style={{
@@ -944,6 +1025,8 @@ export default function VideoPlayer({
             borderTop: '1px solid rgba(6, 182, 212, 0.35)',
             borderBottom: '1px solid rgba(6, 182, 212, 0.35)',
             boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 35px rgba(6, 182, 212, 0.18)',
+            transform: 'translateZ(0)',
+            willChange: 'transform',
           }}
         >
           {/* ── 1. Floating Preview Title (Always Top-Left, Multi-line Safe) ── */}
@@ -974,7 +1057,7 @@ export default function VideoPlayer({
           )}
 
           {/* ── 2. Continue Watching Notification Banner in Player ── */}
-          {showResumePrompt && resumeTime && !hasError && !isPlaying && (
+          {showResumePrompt && resumeTime && !hasError && (
             <div className="absolute bottom-16 sm:bottom-20 left-3 sm:left-6 z-30 animate-in fade-in slide-in-from-bottom-3 duration-300 max-w-[90%] sm:max-w-md">
               <div
                 className="flex items-center gap-3 p-2.5 sm:p-3.5 rounded-2xl backdrop-blur-xl border shadow-2xl"
