@@ -66,13 +66,13 @@ export default function MovieCard({ item, type, priority = false }: MovieCardPro
         )}
 
         {/* ── IMDb-Style Yellow Rating Badge (Top-Right) ── */}
-        <div className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 z-10 flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md bg-[#f5c518] text-black font-black text-[10px] sm:text-[11.5px] shadow-lg shadow-black/50 tracking-tight">
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-md bg-[#f5c518] text-black font-black text-[10px] sm:text-[11.5px] shadow-lg shadow-black/50 tracking-tight">
           <Star size={11} fill="currentColor" stroke="none" className="text-black" />
           <span>{rating > 0 ? rating.toFixed(1) : 'NR'}</span>
         </div>
 
         {/* ── Media Type Badge (Top-Left: Series / Movie) ── */}
-        <div className="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/15 text-slate-200 font-bold text-[9px] sm:text-[10px] uppercase tracking-wider shadow-md">
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/15 text-slate-200 font-bold text-[9px] sm:text-[10px] uppercase tracking-wider shadow-md">
           {resolvedType === 'tv' ? (
             <>
               <Tv size={10} className="text-cyan-400" />
@@ -107,8 +107,8 @@ export function MovieCardSkeleton() {
   return (
     <div className="w-full space-y-2 select-none animate-pulse">
       <div className="aspect-[2/3] w-full rounded-xl sm:rounded-2xl overflow-hidden skeleton bg-white/[0.08] border border-white/5 relative">
-        <div className="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 w-12 h-4 rounded-md bg-white/[0.06] skeleton" />
-        <div className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 w-8 h-4 rounded-md bg-white/[0.06] skeleton" />
+        <div className="absolute top-2 left-2 w-12 h-4 rounded-md bg-white/[0.06] skeleton" />
+        <div className="absolute top-2 right-2 w-8 h-4 rounded-md bg-white/[0.06] skeleton" />
       </div>
       <div className="space-y-1.5 px-0.5 pt-1">
         <div className="h-3.5 w-3/4 rounded-md bg-white/[0.08] skeleton" />

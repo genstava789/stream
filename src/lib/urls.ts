@@ -63,8 +63,8 @@ export function isValidVideoUrl(url?: string | null): boolean {
   const trimmed = clean.trim();
   if (trimmed.length < 5) return false;
 
-  // Simple relaxed check: must start with https://, http://, s3://, protocol-relative //, or /
-  return /^https?:\/\//i.test(trimmed) || /^s3:\/\//i.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/');
+  // Simple relaxed check: must start with https://, http://, protocol-relative //, or /
+  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/');
 }
 
 /**
@@ -181,15 +181,15 @@ export function cleanVideoUrl(url?: string | null): string | null {
   // Strip wrapping/stray quotes (single quotes, double quotes, backticks)
   clean = clean.replace(/^["'`]+|["'`]+$/g, '').trim();
 
-  // Fix typo protocol https//: or http//: or s3//: -> https:// or http:// or s3://
-  clean = clean.replace(/^(https?|s3)\/\/:(.*)$/i, '$1://$2');
-  clean = clean.replace(/^(https?|s3):\/\/:(.*)$/i, '$1://$2');
+  // Fix typo protocol https//: or http//: -> https:// or http://
+  clean = clean.replace(/^(https?)\/\/:(.*)$/i, '$1://$2');
+  clean = clean.replace(/^(https?):\/\/:(.*)$/i, '$1://$2');
 
-  // Fix typo protocol https:/ or http:/ or s3:/ with single slash (not followed by /)
-  clean = clean.replace(/^(https?|s3):\/(?!\/)(.*)$/i, '$1://$2');
+  // Fix typo protocol https:/ or http:/ with single slash (not followed by /)
+  clean = clean.replace(/^(https?):\/(?!\/)(.*)$/i, '$1://$2');
 
-  // Fix 3+ slashes: https:/// or s3:/// -> https:// or s3://
-  clean = clean.replace(/^(https?|s3):\/{3,}(.*)$/i, '$1://$2');
+  // Fix 3+ slashes: https:/// -> https://
+  clean = clean.replace(/^(https?):\/{3,}(.*)$/i, '$1://$2');
 
   // Strip any remaining quotes at ends
   clean = clean.replace(/^["'`]+|["'`]+$/g, '').trim();
