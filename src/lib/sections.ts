@@ -148,10 +148,17 @@ export async function getResolvedSections(page: 'home' | 'movie' | 'tv'): Promis
   return memoryCache.getOrFetch<ResolvedSection[]>(
     cacheKey,
     async () => {
+      const getSectionWeight = (sec: SectionConfig) => {
+        if (sec.pageWeights && sec.pageWeights[page] !== undefined) {
+          return sec.pageWeights[page]!;
+        }
+        return sec.weight ?? 100;
+      };
+
       // 1. Get and filter all sections enabled for this page, sorted by weight
       const pageSections = (siteConfig.sections || [])
         .filter((sec) => sec.pages && sec.pages[page])
-        .sort((a, b) => (a.weight ?? 100) - (b.weight ?? 100));
+        .sort((a, b) => getSectionWeight(a) - getSectionWeight(b));
 
       if (pageSections.length === 0) return [];
 
@@ -273,7 +280,7 @@ export async function getResolvedSections(page: 'home' | 'movie' | 'tv'): Promis
             id: section.id,
             title: section.title,
             type: displayType,
-            weight: section.weight,
+            weight: getSectionWeight(section),
             limit: section.limit,
             items: finalItems,
             seeAllHref: section.seeAllHref,

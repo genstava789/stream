@@ -58,6 +58,7 @@ export interface SectionConfig {
   type: 'movie' | 'tv' | 'mixed';
   pages: SectionPages;
   weight: number; // Lower weight appears higher on the page (10, 20, 30...)
+  pageWeights?: { home?: number; movie?: number; tv?: number };
   limit: number;  // Max items to display
   filter?: SectionFilter;
   fallback?: SectionFallback;
@@ -158,6 +159,7 @@ export const siteConfig = {
       type: 'tv',
       pages: { home: true, movie: false, tv: true },
       weight: 30,
+      pageWeights: { home: 30, tv: 60 },
       limit: 10,
       filter: { language: 'ID' },
       fallback: {
@@ -189,6 +191,7 @@ export const siteConfig = {
       type: 'tv',
       pages: { home: true, movie: false, tv: true },
       weight: 24,
+      pageWeights: { home: 24, tv: 50 },
       limit: 10,
       filter: { language: 'ANIME' },
       fallback: {
@@ -204,7 +207,8 @@ export const siteConfig = {
       title: 'Series Jepang',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
-      weight: 26,
+      weight: 40,
+      pageWeights: { tv: 40 },
       limit: 10,
       filter: { language: 'JP' },
       fallback: {
@@ -220,7 +224,8 @@ export const siteConfig = {
       title: 'Drama Korea',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
-      weight: 25,
+      weight: 30,
+      pageWeights: { tv: 30 },
       limit: 10,
       filter: { language: 'KR' },
       fallback: {
@@ -266,6 +271,7 @@ export const siteConfig = {
       type: 'tv',
       pages: { home: true, movie: false, tv: true },
       weight: 70,
+      pageWeights: { home: 70, tv: 10 },
       limit: 10,
       filter: { trending: true },
       fallback: { enabled: true, tmdbType: 'tv', tmdbEndpoint: 'trending' },
@@ -275,7 +281,8 @@ export const siteConfig = {
       title: 'Recently Added',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
-      weight: 35,
+      weight: 20,
+      pageWeights: { tv: 20 },
       limit: 10,
       fallback: { enabled: true, tmdbType: 'tv', tmdbEndpoint: 'airing_today' },
       seeAllHref: '/tv/browse?sort=first_air_date.desc',
@@ -285,7 +292,8 @@ export const siteConfig = {
       title: 'Popular TV Shows',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
-      weight: 45,
+      weight: 70,
+      pageWeights: { tv: 70 },
       limit: 10,
       fallback: { enabled: true, tmdbType: 'tv', tmdbEndpoint: 'popular' },
       seeAllHref: '/tv/browse?sort=popularity.desc',
@@ -295,7 +303,8 @@ export const siteConfig = {
       title: 'Top Rated Series',
       type: 'tv',
       pages: { home: false, movie: false, tv: true },
-      weight: 55,
+      weight: 80,
+      pageWeights: { tv: 80 },
       limit: 10,
       fallback: { enabled: true, tmdbType: 'tv', tmdbEndpoint: 'top_rated' },
       seeAllHref: '/tv/browse?sort=vote_average.desc',

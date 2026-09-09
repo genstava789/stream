@@ -288,8 +288,8 @@ export default function TVDetailClient({
           />
         ) : (
           <div className="w-full aspect-video max-h-[72vh] flex items-center justify-center bg-black/90">
-            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center animate-pulse">
-              <div className="w-6 h-6 rounded-full bg-cyan-400/40" />
+            <div className="text-center px-4">
+              <p className="text-xs sm:text-sm font-medium text-slate-400">Video belum tersedia untuk episode ini</p>
             </div>
           </div>
         )}
