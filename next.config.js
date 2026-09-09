@@ -18,13 +18,6 @@ const nextConfig = {
   compress: true,
   swcMinify: true,
 
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
   // Optimasi tree-shaking untuk modul berat dan client-side router memory cache
   experimental: {
     optimizePackageImports: ['lucide-react', 'tinacms'],
