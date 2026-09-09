@@ -328,14 +328,14 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       if (!formVideoUrl) {
         errors.formVideoUrl = 'URL Video wajib diisi';
       } else if (!isValidVideoUrl(formVideoUrl)) {
-        errors.formVideoUrl = 'URL Video harus diawali https://';
+        errors.formVideoUrl = 'URL Video tidak valid';
       }
     } else if (contentType === 'tv_show') {
       if (!formTmdbId) errors.formTmdbId = 'TMDB ID wajib diisi';
       for (const s of formSeasons) {
         for (const ep of s.episodes) {
           if (ep.videourl && !isValidVideoUrl(ep.videourl)) {
-            errors[`ep_video_${ep.id}`] = `URL Video untuk ${ep.episode || ep.title} harus diawali https://`;
+            errors[`ep_video_${ep.id}`] = `URL Video untuk ${ep.episode || ep.title} tidak valid`;
           }
         }
       }
@@ -344,7 +344,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       if (!formVideoUrl) {
         errors.formVideoUrl = 'URL Video wajib diisi';
       } else if (!isValidVideoUrl(formVideoUrl)) {
-        errors.formVideoUrl = 'URL Video harus diawali https://';
+        errors.formVideoUrl = 'URL Video tidak valid';
       }
     }
     setFormErrors(errors);

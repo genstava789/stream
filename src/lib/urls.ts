@@ -61,10 +61,10 @@ export function isValidVideoUrl(url?: string | null): boolean {
   const clean = cleanVideoUrl(url);
   if (!clean) return false;
   const trimmed = clean.trim();
-  if (trimmed.length < 5) return false;
+  if (trimmed.length < 3) return false;
 
-  // Simple relaxed check: must start with https://, http://, protocol-relative //, or /
-  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/');
+  // Relaxed check: allows any scheme (https://, http://, s3://, etc.), protocol-relative //, or /
+  return /^[a-z0-9+.-]+:\/\//i.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/');
 }
 
 /**

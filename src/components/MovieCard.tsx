@@ -72,7 +72,7 @@ export default function MovieCard({ item, type, priority = false }: MovieCardPro
         </div>
 
         {/* ── Media Type Badge (Top-Left: Series / Movie) ── */}
-        <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/15 text-slate-200 font-bold text-[9px] sm:text-[10px] uppercase tracking-wider shadow-md">
+        <div className="absolute top-2 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/15 text-slate-200 font-bold text-[9px] sm:text-[10px] uppercase tracking-wider shadow-md">
           {resolvedType === 'tv' ? (
             <>
               <Tv size={10} className="text-cyan-400" />
@@ -107,7 +107,7 @@ export function MovieCardSkeleton() {
   return (
     <div className="w-full space-y-2 select-none animate-pulse">
       <div className="aspect-[2/3] w-full rounded-xl sm:rounded-2xl overflow-hidden skeleton bg-white/[0.08] border border-white/5 relative">
-        <div className="absolute top-2 left-2 w-12 h-4 rounded-md bg-white/[0.06] skeleton" />
+        <div className="absolute top-2 left-1.5 w-12 h-4 rounded-md bg-white/[0.06] skeleton" />
         <div className="absolute top-2 right-2 w-8 h-4 rounded-md bg-white/[0.06] skeleton" />
       </div>
       <div className="space-y-1.5 px-0.5 pt-1">
