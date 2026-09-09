@@ -2016,11 +2016,17 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
  */
 export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitHubOptions) {
   const { token } = ghConfig;
-  for (const relativePath of pathsToDelete) {
-    const isMovie = relativePath.startsWith('video/');
-    const isTV = relativePath.startsWith('tv/');
+  for (const rawPath of pathsToDelete) {
+    if (!rawPath || typeof rawPath !== 'string') continue;
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const isMovie = normalized.startsWith('video/') || (!normalized.includes('/') && !normalized.startsWith('tv/'));
+    const isTV = normalized.startsWith('tv/');
 
     if (!isMovie && !isTV) continue;
+
+    const relativePath = isMovie && !normalized.startsWith('video/')
+      ? `video/${normalized.endsWith('.md') || normalized.endsWith('.markdown') ? normalized : `${normalized}.md`}`
+      : normalized;
 
     const isTvShowIndex = isTV && (relativePath.endsWith('/_index.md') || relativePath.endsWith('/index.md'));
     const isTvDirectory = isTV && !relativePath.endsWith('.md') && !relativePath.endsWith('.markdown');
@@ -2112,7 +2118,9 @@ export async function deleteAdminContent(pathsToDelete: string[], ghConfig: GitH
       if (!folderToDelete) {
         const altPath = fullPath.endsWith('.md')
           ? fullPath.replace(/\.md$/i, '.markdown')
-          : fullPath.replace(/\.markdown$/i, '.md');
+          : fullPath.endsWith('.markdown')
+          ? fullPath.replace(/\.markdown$/i, '.md')
+          : `${fullPath}.md`;
         if (fs.existsSync(altPath)) fs.unlinkSync(altPath);
       }
     } catch (err: any) {
