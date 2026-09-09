@@ -132,7 +132,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
   };
 
   const handleS3Select = (url: string) => {
-    if (s3Target.type === 'mainVideo') {
+    if (s3Target.type === 'mainVideo' || (contentType === 'tv_episode' && s3Target.type === 'episode')) {
       setFormVideoUrl(url);
       showToast('URL Video berhasil dipilih dari S3!');
     } else if (s3Target.type === 'subtitles') {
@@ -328,14 +328,14 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       if (!formVideoUrl) {
         errors.formVideoUrl = 'URL Video wajib diisi';
       } else if (!isValidVideoUrl(formVideoUrl)) {
-        errors.formVideoUrl = 'URL Video harus diawali https://';
+        errors.formVideoUrl = 'URL Video harus diawali https://, http://, atau s3://';
       }
     } else if (contentType === 'tv_show') {
       if (!formTmdbId) errors.formTmdbId = 'TMDB ID wajib diisi';
       for (const s of formSeasons) {
         for (const ep of s.episodes) {
           if (ep.videourl && !isValidVideoUrl(ep.videourl)) {
-            errors[`ep_video_${ep.id}`] = `URL Video untuk ${ep.episode || ep.title} harus diawali https://`;
+            errors[`ep_video_${ep.id}`] = `URL Video untuk ${ep.episode || ep.title} harus diawali https://, http://, atau s3://`;
           }
         }
       }
@@ -344,7 +344,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       if (!formVideoUrl) {
         errors.formVideoUrl = 'URL Video wajib diisi';
       } else if (!isValidVideoUrl(formVideoUrl)) {
-        errors.formVideoUrl = 'URL Video harus diawali https://';
+        errors.formVideoUrl = 'URL Video harus diawali https://, http://, atau s3://';
       }
     }
     setFormErrors(errors);
@@ -362,11 +362,13 @@ export const CreateModal: React.FC<CreateModalProps> = ({
     try {
       setSubmitError(null);
       const payload: any = {
+        contentType: contentType,
         type: contentType,
         tmdb_id: formTmdbId,
         title: formTitle,
         slug: formSlug,
         videourl: formVideoUrl,
+        video_url: formVideoUrl,
         poster: formPoster,
         image_url: formPoster,
         desc: formDesc,

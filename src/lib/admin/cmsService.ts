@@ -1175,7 +1175,7 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
  */
 export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
   ensureDirectories();
-  const { contentType = 'movie' } = body;
+  const contentType = body.contentType || body.type || 'movie';
   const { token } = ghConfig;
   const isProductionOrCloud = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
 
@@ -1563,6 +1563,7 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       season = 's1',
       episode = 'e1',
       videourl,
+      video_url,
       title,
       desc,
       poster,
@@ -1573,18 +1574,24 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
       content = '',
     } = body;
 
-    if (!showSlug) throw new Error('showSlug is required for TV episode');
-    const cleanVideo = cleanVideoUrl(videourl);
+    const rawShowSlug = showSlug || body.show_slug || body.showSlug || '';
+    if (!rawShowSlug) throw new Error('showSlug is required for TV episode');
+    const rawVideo = videourl || video_url || body.videoUrl || '';
+    const cleanVideo = cleanVideoUrl(rawVideo);
     if (!cleanVideo || !isValidVideoUrl(cleanVideo)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
-    const cleanShowSlug = slugify(showSlug);
-    const cleanSeason = season ? slugify(season) : 's1';
+    const cleanShowSlug = slugify(rawShowSlug);
+    const cleanSeason = season
+      ? String(season).toLowerCase().startsWith('s')
+        ? `s${String(season).replace(/\D/g, '') || '1'}`
+        : `s${String(season).replace(/\D/g, '') || slugify(String(season))}`
+      : 's1';
     const cleanEp = episode
-      ? episode.startsWith('e') || episode.startsWith('ep')
-        ? `e${episode.replace(/\D/g, '') || '1'}`
-        : slugify(episode)
+      ? String(episode).toLowerCase().startsWith('e') || String(episode).toLowerCase().startsWith('ep')
+        ? `e${String(episode).replace(/\D/g, '') || '1'}`
+        : `e${String(episode).replace(/\D/g, '') || slugify(String(episode))}`
       : 'e1';
 
     relativePath = `tv/${cleanShowSlug}/${cleanSeason}/${cleanEp}.md`;
