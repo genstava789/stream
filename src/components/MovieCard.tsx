@@ -9,6 +9,7 @@ import { getImageUrl } from '@/lib/tmdb';
 import { getMovieUrl, getTVUrl } from '@/lib/urls';
 
 interface MovieCardProps {
+  key?: any;
   item: Movie | TVShow;
   type?: 'movie' | 'tv';
   priority?: boolean;

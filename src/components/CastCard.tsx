@@ -5,6 +5,7 @@ import { Cast } from '@/types/tmdb';
 import { getImageUrl } from '@/lib/tmdb';
 
 interface CastCardProps {
+  key?: any;
   cast: Cast;
 }
 
