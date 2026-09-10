@@ -154,7 +154,6 @@ export default function VideoPlayer({
   const [hasError, setHasError] = useState(false);
   const [reported, setReported] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [resumeTime, setResumeTime] = useState<number | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
@@ -162,6 +161,7 @@ export default function VideoPlayer({
   // Next episode prompt state
   const [showNextPrompt, setShowNextPrompt] = useState(false);
   const [nextCountdown, setNextCountdown] = useState(8);
+  const [isMounted, setIsMounted] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
@@ -222,105 +222,7 @@ export default function VideoPlayer({
     return [];
   }, [subtitles]);
 
-  const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>(() => normalizeSubtitles());
-
-  // Convert external .srt to WebVTT blob URLs so browser <track> can parse them
-  useEffect(() => {
-    let active = true;
-    const rawSubs = normalizeSubtitles();
-    if (rawSubs.length === 0) {
-      setResolvedSubtitles([]);
-      return;
-    }
-
-    const createdBlobs: string[] = [];
-
-    const processSubs = async () => {
-      const processed: SubtitleTrackItem[] = [];
-      for (const s of rawSubs) {
-        if (!s.src) continue;
-        if (s.src.toLowerCase().endsWith('.srt') || s.src.includes('.srt?')) {
-          try {
-            const res = await fetch(s.src);
-            if (res.ok) {
-              const srtText = await res.text();
-              const vttText =
-                'WEBVTT\n\n' +
-                srtText
-                  .replace(/\r\n/g, '\n')
-                  .replace(/\r/g, '\n')
-                  .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-              const blob = new Blob([vttText], { type: 'text/vtt' });
-              const blobUrl = URL.createObjectURL(blob);
-              createdBlobs.push(blobUrl);
-              processed.push({ ...s, src: blobUrl });
-              continue;
-            }
-          } catch (e) {}
-        }
-        processed.push(s);
-      }
-      if (active) {
-        setResolvedSubtitles(processed);
-      }
-    };
-
-    processSubs();
-
-    return () => {
-      active = false;
-      createdBlobs.forEach((b) => URL.revokeObjectURL(b));
-    };
-  }, [subtitles, normalizeSubtitles]);
-
-  // Keep Plyr updated when resolvedSubtitles change
-  useEffect(() => {
-    if (resolvedSubtitles.length > 0 && videoRef.current) {
-      const videoElem = videoRef.current;
-      resolvedSubtitles.forEach((sub, idx) => {
-        if (!sub.src) return;
-        const tracks = Array.from(videoElem.querySelectorAll('track'));
-        const track = tracks[idx] || tracks.find((t) => t.srclang === (sub.srcLang || 'id') || t.label === sub.label);
-        if (track && track.src !== sub.src) {
-          track.src = sub.src;
-        }
-      });
-    }
-
-    if (playerInstanceRef.current && resolvedSubtitles.length > 0) {
-      const p = playerInstanceRef.current;
-      try {
-        if (p.captions) {
-          p.captions.setup();
-        }
-      } catch (e) {}
-
-      const timer = setTimeout(() => {
-        if (!playerInstanceRef.current || !videoRef.current) return;
-        try {
-          const videoElem = videoRef.current;
-          const validTracks =
-            p.captions && typeof p.captions.getTracks === 'function'
-              ? p.captions.getTracks()
-              : Array.from(videoElem.textTracks || []).filter(
-                  (t: any) => t.kind === 'subtitles' || t.kind === 'captions'
-                );
-
-          if (validTracks.length > 0 && p.currentTrack === -1) {
-            const defIdx = validTracks.findIndex((t: any) => t.default || t.mode === 'showing');
-            const targetIdx = defIdx !== -1 ? defIdx : 0;
-            if (validTracks[targetIdx]) {
-              validTracks[targetIdx].mode = 'showing';
-              p.currentTrack = targetIdx;
-              p.toggleCaptions(true);
-            }
-          }
-        } catch (e) {}
-      }, 120);
-
-      return () => clearTimeout(timer);
-    }
-  }, [resolvedSubtitles]);
+  const extSubs = normalizeSubtitles();
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
   const isMp4 = !isHls && !isMkv && (effectiveVideoUrl.toLowerCase().includes('.mp4') || effectiveVideoUrl.toLowerCase().includes('.m4v') || !effectiveVideoUrl.includes('.'));
@@ -333,7 +235,7 @@ export default function VideoPlayer({
     let isCancelled = false;
     const abortController = new AbortController();
 
-    setIsPlayerReady(false);
+    setIsMounted(true);
     setHasError(false);
     setReported(false);
     setIsPlaying(false);
@@ -1177,9 +1079,6 @@ export default function VideoPlayer({
           player.elements.container.classList.add('plyr--stopped', 'plyr--full-ui');
         }
         player.on('ready', () => {
-          if (!isCancelled) {
-            setIsPlayerReady(true);
-          }
           if (player.elements && player.elements.container) {
             player.elements.container.classList.add('plyr--stopped', 'plyr--full-ui');
           }
@@ -1193,7 +1092,6 @@ export default function VideoPlayer({
         // If user presses play and there is saved progress near start, auto-resume
         player.on('play', () => {
           setIsPlaying(true);
-          setIsPlayerReady(true);
           if (savedResumeTimeRef.current && savedResumeTimeRef.current > 5 && (player.currentTime || 0) < 2) {
             const target = savedResumeTimeRef.current;
             savedResumeTimeRef.current = null;
@@ -1700,78 +1598,35 @@ export default function VideoPlayer({
               /* Declarative <video> tag in JSX isolated with key */
               <div
                 key={effectiveVideoUrl}
-                className="w-full h-full flex items-center justify-center plyr-custom-wrapper relative"
+                className="w-full h-full flex items-center justify-center plyr-custom-wrapper"
               >
                 <video
                   ref={videoRef}
-                  src={effectiveVideoUrl}
+                  src={isMounted ? effectiveVideoUrl : undefined}
                   className="plyr-react plyr w-full h-full"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
                 >
                   <source
-                    src={effectiveVideoUrl}
-                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : (isMkv ? 'video/x-matroska' : 'video/mp4')}
+                    src={isMounted ? effectiveVideoUrl : ''}
+                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
                   />
-                  {isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
+                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
-                  {resolvedSubtitles.map((sub, idx) => (
-                    <track
-                      key={`${sub.src}-${idx}`}
-                      kind="subtitles"
-                      label={sub.label || `Subtitle ${idx + 1}`}
-                      srcLang={sub.srcLang || 'id'}
-                      src={sub.src}
-                      default={sub.default || idx === 0}
-                      onLoad={(e) => {
-                        const trackElem = e.currentTarget as HTMLTrackElement;
-                        if (trackElem && trackElem.track) {
-                          trackElem.track.mode = 'showing';
-                          if (activateTrackInPlyrRef.current) {
-                            activateTrackInPlyrRef.current(trackElem.track);
-                          }
-                        }
-                      }}
-                    />
-                  ))}
+                  {isMounted &&
+                    extSubs.map((sub, idx) => (
+                      <track
+                        key={`${sub.src}-${idx}`}
+                        kind="subtitles"
+                        label={sub.label || `Subtitle ${idx + 1}`}
+                        srcLang={sub.srcLang || 'id'}
+                        src={sub.src}
+                        default={sub.default || idx === 0}
+                      />
+                    ))}
                   Your browser does not support the video tag.
                 </video>
-
-                {/* ── Instant Poster & Big Center Play Button (guaranteed visible from the very first frame) ── */}
-                {!isPlayerReady && !isPlaying && !hasError && (
-                  <div
-                    className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer select-none transition-opacity duration-300"
-                    onClick={() => {
-                      if (playerInstanceRef.current) {
-                        try {
-                          playerInstanceRef.current.play();
-                        } catch (e) {}
-                      } else if (videoRef.current) {
-                        videoRef.current.play().catch(() => {});
-                      }
-                    }}
-                    style={{
-                      backgroundImage: poster ? `url("${poster}")` : undefined,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-black/25 backdrop-blur-[1px]" />
-                    <button
-                      type="button"
-                      className="relative z-10 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-transform duration-200 hover:scale-110 active:scale-95 shadow-2xl"
-                      style={{
-                        background: 'linear-gradient(135deg, #06b6d4, #7c3aed)',
-                        boxShadow: '0 0 35px rgba(6, 182, 212, 0.6), 0 0 70px rgba(124, 58, 237, 0.3)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                      }}
-                      aria-label="Putar Video"
-                    >
-                      <Play size={28} fill="white" className="text-white ml-1" />
-                    </button>
-                  </div>
-                )}
               </div>
             )}
           </div>
