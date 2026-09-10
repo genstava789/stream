@@ -143,7 +143,6 @@ export default async function MovieEmbedPage({ params }: PageProps) {
 
       <div className="w-full h-full">
         <VideoPlayer
-          key={videoUrl || params.id}
           videoUrl={videoUrl}
           title={videoTitle}
           poster={thumbnailImage}
