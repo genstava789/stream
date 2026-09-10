@@ -165,6 +165,7 @@ export default function VideoPlayer({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
+  const hlsInstanceRef = useRef<any>(null);
   const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
   const mp4TracksMapRef = useRef<Map<number, TextTrack>>(new Map());
   const lastSavedTimeRef = useRef<number>(0);
