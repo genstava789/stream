@@ -175,6 +175,7 @@ export default function VideoPlayer({
   const savedResumeTimeRef = useRef<number | null>(null);
   const fetchClusterForTimeRef = useRef<((t: number) => void) | null>(null);
   const fetchMp4CuesForTimeRef = useRef<((t: number) => void) | null>(null);
+  const activateTrackInPlyrRef = useRef<((track: TextTrack) => void) | null>(null);
 
   const effectiveVideoUrl = cleanVideoUrl(videoUrl) || videoUrl || '';
   const onNextEpisodeRef = useRef(onNextEpisode);
@@ -217,7 +218,93 @@ export default function VideoPlayer({
     return [];
   }, [subtitles]);
 
-  const extSubs = normalizeSubtitles();
+  const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>(() => normalizeSubtitles());
+
+  // Convert external .srt to WebVTT blob URLs so browser <track> can parse them
+  useEffect(() => {
+    let active = true;
+    const rawSubs = normalizeSubtitles();
+    if (rawSubs.length === 0) {
+      setResolvedSubtitles([]);
+      return;
+    }
+
+    const createdBlobs: string[] = [];
+
+    const processSubs = async () => {
+      const processed: SubtitleTrackItem[] = [];
+      for (const s of rawSubs) {
+        if (!s.src) continue;
+        if (s.src.toLowerCase().endsWith('.srt') || s.src.includes('.srt?')) {
+          try {
+            const res = await fetch(s.src);
+            if (res.ok) {
+              const srtText = await res.text();
+              const vttText =
+                'WEBVTT\n\n' +
+                srtText
+                  .replace(/\r\n/g, '\n')
+                  .replace(/\r/g, '\n')
+                  .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+              const blob = new Blob([vttText], { type: 'text/vtt' });
+              const blobUrl = URL.createObjectURL(blob);
+              createdBlobs.push(blobUrl);
+              processed.push({ ...s, src: blobUrl });
+              continue;
+            }
+          } catch (e) {}
+        }
+        processed.push(s);
+      }
+      if (active) {
+        setResolvedSubtitles(processed);
+      }
+    };
+
+    processSubs();
+
+    return () => {
+      active = false;
+      createdBlobs.forEach((b) => URL.revokeObjectURL(b));
+    };
+  }, [subtitles, normalizeSubtitles]);
+
+  // Keep Plyr updated when resolvedSubtitles change
+  useEffect(() => {
+    if (playerInstanceRef.current && resolvedSubtitles.length > 0) {
+      const p = playerInstanceRef.current;
+      try {
+        if (p.captions) {
+          p.captions.setup();
+        }
+      } catch (e) {}
+
+      const timer = setTimeout(() => {
+        if (!playerInstanceRef.current || !videoRef.current) return;
+        try {
+          const videoElem = videoRef.current;
+          const validTracks =
+            p.captions && typeof p.captions.getTracks === 'function'
+              ? p.captions.getTracks()
+              : Array.from(videoElem.textTracks || []).filter(
+                  (t: any) => t.kind === 'subtitles' || t.kind === 'captions'
+                );
+
+          if (validTracks.length > 0 && p.currentTrack === -1) {
+            const defIdx = validTracks.findIndex((t: any) => t.default || t.mode === 'showing');
+            const targetIdx = defIdx !== -1 ? defIdx : 0;
+            if (validTracks[targetIdx]) {
+              validTracks[targetIdx].mode = 'showing';
+              p.currentTrack = targetIdx;
+              p.toggleCaptions(true);
+            }
+          }
+        } catch (e) {}
+      }, 120);
+
+      return () => clearTimeout(timer);
+    }
+  }, [resolvedSubtitles]);
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
   const isMp4 = !isHls && !isMkv && (effectiveVideoUrl.toLowerCase().includes('.mp4') || effectiveVideoUrl.toLowerCase().includes('.m4v') || !effectiveVideoUrl.includes('.'));
@@ -393,12 +480,49 @@ export default function VideoPlayer({
     if (videoElement.textTracks) {
       videoElement.textTracks.addEventListener('addtrack', () => {
         scanSubtitleTracks(hlsInstanceRef.current);
+        if (playerInstanceRef.current?.captions) {
+          try {
+            playerInstanceRef.current.captions.setup();
+          } catch (e) {}
+        }
       });
     }
 
+    const activateTrackInPlyr = (targetTextTrack: TextTrack) => {
+      targetTextTrack.mode = 'showing';
+      const player = playerInstanceRef.current;
+      if (player) {
+        try {
+          if (player.captions) {
+            player.captions.setup();
+          }
+        } catch (e) {}
+
+        setTimeout(() => {
+          if (isCancelled || !playerInstanceRef.current) return;
+          try {
+            const p = playerInstanceRef.current;
+            const validTracks =
+              p.captions && typeof p.captions.getTracks === 'function'
+                ? p.captions.getTracks()
+                : Array.from(videoElement.textTracks || []).filter(
+                    (t: any) => t.kind === 'subtitles' || t.kind === 'captions'
+                  );
+
+            const trackIdx = validTracks.findIndex((t: any) => t === targetTextTrack);
+            if (trackIdx !== -1) {
+              p.currentTrack = trackIdx;
+              p.toggleCaptions(true);
+            }
+          } catch (e) {}
+        }, 80);
+      }
+    };
+    activateTrackInPlyrRef.current = activateTrackInPlyr;
+
     // ── MKV EMBEDDED SOFTCODED SUBTITLES DEMUXER WITH ON-DEMAND SEEK ──
-    const initMkvDemuxer = async () => {
-      if (!isMkv) return;
+    const initMkvDemuxer = async (optionalHeadBuf?: Uint8Array) => {
+      if (!isMkv && !optionalHeadBuf) return;
       try {
         const { SubtitleParser } = await import('matroska-subtitles');
         const ebmlStream = await import('ebml-stream');
@@ -486,6 +610,7 @@ export default function VideoPlayer({
               const target = mkvTracksMapRef.current.get(chosen.trackNumber);
               if (target) {
                 target.mode = 'showing';
+                activateTrackInPlyr(target);
               }
             }
           }
@@ -586,12 +711,15 @@ export default function VideoPlayer({
         // Pre-fetch header and Cues in background so user skips are instant
         (async () => {
           try {
-            const headRes = await fetch(effectiveVideoUrl, {
-              headers: { Range: 'bytes=0-262143' },
-              signal: abortController.signal,
-            });
-            if (!headRes.ok || isCancelled) return;
-            const headBuf = new Uint8Array(await headRes.arrayBuffer());
+            let headBuf = optionalHeadBuf;
+            if (!headBuf) {
+              const headRes = await fetch(effectiveVideoUrl, {
+                headers: { Range: 'bytes=0-262143' },
+                signal: abortController.signal,
+              });
+              if (!headRes.ok || isCancelled) return;
+              headBuf = new Uint8Array(await headRes.arrayBuffer());
+            }
 
             // Feed parser to emit tracks immediately
             try {
@@ -699,16 +827,16 @@ export default function VideoPlayer({
     };
 
     // ── MP4 EMBEDDED SOFTCODED SUBTITLES DEMUXER WITH ON-DEMAND SEEK ──
-    const initMp4Demuxer = async () => {
-      if (!isMp4) return;
+    const initMp4Demuxer = async (optionalHeadBuf?: Uint8Array) => {
       try {
         const { detectMp4Subtitles, fetchMp4CuesForRange } = await import('@/lib/mp4Subtitles');
-        if (isCancelled) return;
+        if (isCancelled) return [];
 
         const mp4Tracks = await detectMp4Subtitles(effectiveVideoUrl, {
           signal: abortController.signal,
+          initialHeadBuf: optionalHeadBuf,
         });
-        if (isCancelled || !videoRef.current || mp4Tracks.length === 0) return;
+        if (isCancelled || !videoRef.current || mp4Tracks.length === 0) return [];
 
         const addedCuesSet = new Set<string>();
         const fetchedCuesIndexSet = new Set<number>();
@@ -790,6 +918,7 @@ export default function VideoPlayer({
             const target = mp4TracksMapRef.current.get(chosen.trackNumber);
             if (target) {
               target.mode = 'showing';
+              activateTrackInPlyr(target);
             }
           }
         }
@@ -884,9 +1013,55 @@ export default function VideoPlayer({
           videoElement.removeEventListener('timeupdate', onTimeUpdate);
           fetchMp4CuesForTimeRef.current = null;
         };
+
+        return mp4Tracks;
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.log('MP4 subtitle demuxer complete or handled:', err?.message);
+        }
+        return [];
+      }
+    };
+
+    // ── UNIFIED EMBEDDED SUBTITLE DEMUXER (AUTO-DETECTS MKV/EBML & MP4/ISOBMFF) ──
+    const initSubtitlesDemuxer = async () => {
+      if (isHls) return;
+      try {
+        let headBuf: Uint8Array | null = null;
+        try {
+          const headRes = await fetch(effectiveVideoUrl, {
+            headers: { Range: 'bytes=0-262143' },
+            signal: abortController.signal,
+          });
+          if (headRes.ok) {
+            headBuf = new Uint8Array(await headRes.arrayBuffer());
+          }
+        } catch (e) {}
+
+        if (isCancelled) return;
+
+        // Sniff container magic bytes:
+        // 0x1a 0x45 0xdf 0xa3 = EBML / Matroska
+        const isEbml =
+          headBuf &&
+          headBuf.length >= 4 &&
+          headBuf[0] === 0x1a &&
+          headBuf[1] === 0x45 &&
+          headBuf[2] === 0xdf &&
+          headBuf[3] === 0xa3;
+
+        if (isEbml || isMkv) {
+          await initMkvDemuxer(headBuf || undefined);
+        } else {
+          const mp4Tracks = await initMp4Demuxer(headBuf || undefined);
+          if ((!mp4Tracks || mp4Tracks.length === 0) && !isCancelled) {
+            await initMkvDemuxer(headBuf || undefined);
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          if (isMkv) initMkvDemuxer();
+          else initMp4Demuxer();
         }
       }
     };
@@ -965,6 +1140,14 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
+        // Ensure big center play button and controls are properly visible on initial mount
+        player.on('ready', () => {
+          if (player.elements && player.elements.container) {
+            player.elements.container.classList.add('plyr--stopped');
+            player.elements.container.classList.add('plyr--full-ui');
+          }
+        });
+
         // If user presses play and there is saved progress near start, auto-resume
         player.on('play', () => {
           setIsPlaying(true);
@@ -1004,6 +1187,9 @@ export default function VideoPlayer({
         player.on('pause', () => {
           setIsPlaying(false);
           saveProgress();
+          if (player.elements && player.elements.container) {
+            player.elements.container.classList.add('plyr--stopped');
+          }
         });
 
         player.on('waiting', () => {
@@ -1036,50 +1222,45 @@ export default function VideoPlayer({
           }
         });
 
+        const getValidTracks = () => {
+          return player.captions && typeof player.captions.getTracks === 'function'
+            ? player.captions.getTracks()
+            : Array.from(videoElement.textTracks || []).filter(
+                (t: any) => t.kind === 'subtitles' || t.kind === 'captions'
+              );
+        };
+
         player.on('captionsenabled', () => {
-          if (videoElement && videoElement.textTracks && videoElement.textTracks.length > 0) {
-            const curIdx =
-              typeof player.currentTrack === 'number' && player.currentTrack >= 0
-                ? player.currentTrack
-                : 0;
-            if (videoElement.textTracks[curIdx]) {
-              videoElement.textTracks[curIdx].mode = 'showing';
-            }
+          const validTracks = getValidTracks();
+          const curIdx =
+            typeof player.currentTrack === 'number' && player.currentTrack >= 0
+              ? player.currentTrack
+              : 0;
+          if (validTracks[curIdx]) {
+            validTracks[curIdx].mode = 'showing';
           }
         });
 
         player.on('captionsdisabled', () => {
-          if (videoElement && videoElement.textTracks) {
-            for (let i = 0; i < videoElement.textTracks.length; i++) {
-              videoElement.textTracks[i].mode = 'hidden';
-            }
+          const validTracks = getValidTracks();
+          for (let i = 0; i < validTracks.length; i++) {
+            validTracks[i].mode = 'hidden';
           }
         });
 
         player.on('languagechange', () => {
-          if (
-            typeof player.currentTrack === 'number' &&
-            player.currentTrack >= 0 &&
-            videoElement &&
-            videoElement.textTracks &&
-            videoElement.textTracks[player.currentTrack]
-          ) {
-            const selectedTrack = videoElement.textTracks[player.currentTrack];
-            for (let i = 0; i < videoElement.textTracks.length; i++) {
-              const tr = videoElement.textTracks[i];
-              if (tr === selectedTrack) {
-                tr.mode = 'showing';
-              } else {
-                tr.mode = 'hidden';
-              }
+          if (typeof player.currentTrack === 'number' && player.currentTrack >= 0) {
+            const validTracks = getValidTracks();
+            const selectedTrack = validTracks[player.currentTrack];
+            for (let i = 0; i < validTracks.length; i++) {
+              validTracks[i].mode = validTracks[i] === selectedTrack ? 'showing' : 'hidden';
             }
           }
         });
 
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
-        initMkvDemuxer();
-        initMp4Demuxer();
+        initSubtitlesDemuxer();
       } catch (err) {
         console.error('Error loading video player modules:', err);
       }
@@ -1488,7 +1669,7 @@ export default function VideoPlayer({
                   {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
 
                   {isMounted &&
-                    extSubs.map((sub, idx) => (
+                    resolvedSubtitles.map((sub, idx) => (
                       <track
                         key={`${sub.src}-${idx}`}
                         kind="subtitles"
@@ -1496,6 +1677,15 @@ export default function VideoPlayer({
                         srcLang={sub.srcLang || 'id'}
                         src={sub.src}
                         default={sub.default || idx === 0}
+                        onLoad={(e) => {
+                          const trackElem = e.currentTarget as HTMLTrackElement;
+                          if (trackElem && trackElem.track) {
+                            trackElem.track.mode = 'showing';
+                            if (activateTrackInPlyrRef.current) {
+                              activateTrackInPlyrRef.current(trackElem.track);
+                            }
+                          }
+                        }}
                       />
                     ))}
                   Your browser does not support the video tag.

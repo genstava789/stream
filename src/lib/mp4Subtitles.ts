@@ -423,7 +423,7 @@ export async function detectMp4Subtitles(
         const isSubtitleTrak =
           hdlrIdx &&
           hdlrIdx.payload.length >= 12 &&
-          ['text', 'sbtl', 'subt', 'clcp'].includes(
+          ['text', 'sbtl', 'subt', 'clcp', 'tx3g', 'wvtt', 'subp'].includes(
             readAscii(hdlrIdx.payload, 8, 4).toLowerCase()
           );
 
