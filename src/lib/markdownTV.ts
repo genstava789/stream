@@ -276,9 +276,12 @@ export async function getAllCustomTVSlugPaths(): Promise<{ slug: string[] }[]> {
     } catch (mErr) {
       console.warn('[markdownTV] getAllCustomTVSlugPaths MongoDB notice:', mErr);
     }
+    if (pathsMap.size > 0) {
+      return Array.from(pathsMap.values());
+    }
   }
 
-  // 2. Also check local disk dirs as fallback or complement
+  // 2. Fallback to local disk dirs only if MongoDB is not configured or empty
   const dirs = getAllCustomTVShowDirs();
   for (const showSlug of dirs) {
     const showData = await getCustomTVShowBySlug(showSlug);

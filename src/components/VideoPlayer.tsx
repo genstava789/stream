@@ -43,7 +43,7 @@ interface DetectedSubtitle {
   id: string | number;
   label: string;
   language: string;
-  type: 'native' | 'hls' | 'external' | 'mkv';
+  type: 'native' | 'hls' | 'external' | 'mkv' | 'mp4';
   trackIndex?: number;
   trackNumber?: number;
 }
@@ -165,13 +165,15 @@ export default function VideoPlayer({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
-  const hlsInstanceRef = useRef<any>(null);
   const mkvTracksMapRef = useRef<Map<number, TextTrack>>(new Map());
+  const mp4TracksMapRef = useRef<Map<number, TextTrack>>(new Map());
   const lastSavedTimeRef = useRef<number>(0);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const mkvSeekCleanupRef = useRef<(() => void) | null>(null);
+  const mp4SeekCleanupRef = useRef<(() => void) | null>(null);
   const savedResumeTimeRef = useRef<number | null>(null);
   const fetchClusterForTimeRef = useRef<((t: number) => void) | null>(null);
+  const fetchMp4CuesForTimeRef = useRef<((t: number) => void) | null>(null);
 
   const effectiveVideoUrl = cleanVideoUrl(videoUrl) || videoUrl || '';
   const onNextEpisodeRef = useRef(onNextEpisode);
@@ -217,6 +219,7 @@ export default function VideoPlayer({
   const extSubs = normalizeSubtitles();
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
+  const isMp4 = !isHls && !isMkv && (effectiveVideoUrl.toLowerCase().includes('.mp4') || effectiveVideoUrl.toLowerCase().includes('.m4v') || !effectiveVideoUrl.includes('.'));
 
   // Main video player initialization effect
   useEffect(() => {
@@ -236,6 +239,7 @@ export default function VideoPlayer({
     setResumeTime(null);
     savedResumeTimeRef.current = null;
     mkvTracksMapRef.current.clear();
+    mp4TracksMapRef.current.clear();
 
     // Check saved playback progress
     if (storageKey) {
@@ -693,6 +697,199 @@ export default function VideoPlayer({
       }
     };
 
+    // ── MP4 EMBEDDED SOFTCODED SUBTITLES DEMUXER WITH ON-DEMAND SEEK ──
+    const initMp4Demuxer = async () => {
+      if (!isMp4) return;
+      try {
+        const { detectMp4Subtitles, fetchMp4CuesForRange } = await import('@/lib/mp4Subtitles');
+        if (isCancelled) return;
+
+        const mp4Tracks = await detectMp4Subtitles(effectiveVideoUrl, {
+          signal: abortController.signal,
+        });
+        if (isCancelled || !videoRef.current || mp4Tracks.length === 0) return;
+
+        const addedCuesSet = new Set<string>();
+        const fetchedCuesIndexSet = new Set<number>();
+
+        const addParsedCue = (
+          trackNumber: number,
+          startSec: number,
+          endSec: number,
+          rawText: string
+        ) => {
+          if (isCancelled) return;
+          const targetTrack = mp4TracksMapRef.current.get(trackNumber);
+          if (targetTrack && typeof startSec === 'number' && !isNaN(startSec)) {
+            const safeEndSec = Math.max(startSec + 0.5, endSec || startSec + 3.0);
+            const cleanText = cleanSubtitleText(rawText);
+            const cueKey = `mp4_${trackNumber}_${Math.round(startSec * 10)}_${cleanText.slice(0, 20)}`;
+            if (cleanText && safeEndSec > startSec && !addedCuesSet.has(cueKey)) {
+              addedCuesSet.add(cueKey);
+              try {
+                const cue = new VTTCue(startSec, safeEndSec, cleanText);
+                targetTrack.addCue(cue);
+              } catch (e) {}
+            }
+          }
+        };
+
+        const mp4Detected: DetectedSubtitle[] = [];
+
+        const hasIndo = mp4Tracks.some((t) => {
+          const l = (t.language || '').toLowerCase();
+          const n = (t.label || '').toLowerCase();
+          return l === 'ind' || l === 'id' || n.includes('indo');
+        });
+
+        mp4Tracks.forEach((t) => {
+          const trackNumber = t.trackNumber;
+          const rawLang = (t.language || '').toLowerCase();
+          const rawName = (t.label || '').toLowerCase();
+
+          const isId = rawLang === 'ind' || rawLang === 'id' || rawName.includes('indo');
+          const isEn = rawLang === 'eng' || rawLang === 'en' || rawName.includes('eng') || (!rawLang && hasIndo);
+
+          const langCode = isId ? 'id' : isEn ? 'en' : (rawLang || 'und');
+          const langLabel = t.label || (isId ? 'Bahasa Indonesia' : isEn ? 'English' : getLanguageLabel(langCode, t.label));
+
+          if (videoRef.current) {
+            try {
+              const textTrack = videoRef.current.addTextTrack(
+                'subtitles',
+                langLabel,
+                langCode
+              );
+              textTrack.mode = 'hidden';
+              mp4TracksMapRef.current.set(trackNumber, textTrack);
+            } catch (e) {
+              console.error('Failed to addTextTrack for MP4 subtitle:', e);
+            }
+          }
+
+          mp4Detected.push({
+            id: `mp4-${trackNumber}`,
+            label: langLabel,
+            language: langCode,
+            type: 'mp4',
+            trackNumber,
+          });
+        });
+
+        // Auto-enable Indonesian subtitle by default if available, or first track
+        if (mp4Detected.length > 0) {
+          const indoTrack = mp4Detected.find(
+            (t) =>
+              t.language === 'ind' ||
+              t.language === 'id' ||
+              t.label.toLowerCase().includes('indo')
+          );
+          const chosen = indoTrack || mp4Detected[0];
+          if (chosen && chosen.trackNumber) {
+            const target = mp4TracksMapRef.current.get(chosen.trackNumber);
+            if (target) {
+              target.mode = 'showing';
+            }
+          }
+        }
+
+        // Inform Plyr to refresh captions menu so newly added tracks are recognized
+        if (playerInstanceRef.current && (playerInstanceRef.current as any).captions) {
+          try {
+            (playerInstanceRef.current as any).captions.setup();
+          } catch (e) {}
+        }
+
+        const fetchMp4CuesForTime = async (targetSec: number) => {
+          if (isCancelled) return;
+          const startRange = Math.max(0, targetSec - 5);
+          const endRange = targetSec + 30;
+
+          for (const track of mp4Tracks) {
+            try {
+              const cues = await fetchMp4CuesForRange(
+                track,
+                startRange,
+                endRange,
+                effectiveVideoUrl,
+                { signal: abortController.signal, fetchedCuesSet: fetchedCuesIndexSet }
+              );
+              for (const c of cues) {
+                addParsedCue(track.trackNumber, c.startSec, c.endSec, c.text);
+              }
+            } catch (e) {}
+          }
+        };
+
+        fetchMp4CuesForTimeRef.current = (t: number) => {
+          fetchMp4CuesForTime(t);
+        };
+
+        // Initial fetch for beginning of video (time 0-30s)
+        if (videoElement && !isCancelled) {
+          fetchMp4CuesForTime(videoElement.currentTime || 0);
+          fetchMp4CuesForTime((videoElement.currentTime || 0) + 10);
+        }
+
+        // Pre-fetch all cues if small track (< 300 cues) so whole video has subtitles ready immediately
+        for (const track of mp4Tracks) {
+          if (track.cues.length <= 300) {
+            (async () => {
+              try {
+                const allCues = await fetchMp4CuesForRange(
+                  track,
+                  0,
+                  999999,
+                  effectiveVideoUrl,
+                  { signal: abortController.signal, fetchedCuesSet: fetchedCuesIndexSet }
+                );
+                for (const c of allCues) {
+                  addParsedCue(track.trackNumber, c.startSec, c.endSec, c.text);
+                }
+              } catch (e) {}
+            })();
+          }
+        }
+
+        // Listen to seeked event: fetch cues at new seek location immediately
+        let seekDebounce: NodeJS.Timeout | null = null;
+        const onUserSeeked = () => {
+          if (seekDebounce) clearTimeout(seekDebounce);
+          seekDebounce = setTimeout(() => {
+            if (!isCancelled && videoElement && typeof videoElement.currentTime === 'number') {
+              fetchMp4CuesForTime(videoElement.currentTime);
+              fetchMp4CuesForTime(videoElement.currentTime + 10);
+            }
+          }, 80);
+        };
+
+        // Lookahead every 4 seconds during continuous playback (zero lag)
+        let lastCheckedTime = 0;
+        const onTimeUpdate = () => {
+          if (!videoElement || isCancelled) return;
+          const now = videoElement.currentTime;
+          if (Math.abs(now - lastCheckedTime) > 4) {
+            lastCheckedTime = now;
+            fetchMp4CuesForTime(now + 10);
+          }
+        };
+
+        videoElement.addEventListener('seeked', onUserSeeked);
+        videoElement.addEventListener('timeupdate', onTimeUpdate);
+
+        mp4SeekCleanupRef.current = () => {
+          if (seekDebounce) clearTimeout(seekDebounce);
+          videoElement.removeEventListener('seeked', onUserSeeked);
+          videoElement.removeEventListener('timeupdate', onTimeUpdate);
+          fetchMp4CuesForTimeRef.current = null;
+        };
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.log('MP4 subtitle demuxer complete or handled:', err?.message);
+        }
+      }
+    };
+
     const initModules = async () => {
       try {
         if (isHls) {
@@ -780,6 +977,10 @@ export default function VideoPlayer({
               if (fetchClusterForTimeRef.current) {
                 fetchClusterForTimeRef.current(target);
                 fetchClusterForTimeRef.current(target + 6);
+              }
+              if (fetchMp4CuesForTimeRef.current) {
+                fetchMp4CuesForTimeRef.current(target);
+                fetchMp4CuesForTimeRef.current(target + 10);
               }
             } catch (e) {}
           }
@@ -877,6 +1078,7 @@ export default function VideoPlayer({
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
         initMkvDemuxer();
+        initMp4Demuxer();
       } catch (err) {
         console.error('Error loading video player modules:', err);
       }
@@ -917,8 +1119,13 @@ export default function VideoPlayer({
         mkvSeekCleanupRef.current();
         mkvSeekCleanupRef.current = null;
       }
+      if (mp4SeekCleanupRef.current) {
+        mp4SeekCleanupRef.current();
+        mp4SeekCleanupRef.current = null;
+      }
+      fetchMp4CuesForTimeRef.current = null;
     };
-  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv]);
+  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv, isMp4]);
 
   // Next episode countdown timer
   useEffect(() => {
@@ -985,6 +1192,10 @@ export default function VideoPlayer({
     if (fetchClusterForTimeRef.current) {
       fetchClusterForTimeRef.current(target);
       fetchClusterForTimeRef.current(target + 6);
+    }
+    if (fetchMp4CuesForTimeRef.current) {
+      fetchMp4CuesForTimeRef.current(target);
+      fetchMp4CuesForTimeRef.current(target + 10);
     }
   };
 

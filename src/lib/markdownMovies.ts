@@ -206,30 +206,38 @@ export function getAllCustomMovieSlugs(): string[] {
 }
 
 export async function getAllCustomMovieSlugsAsync(): Promise<string[]> {
-  const slugsSet = new Set<string>(getAllCustomMovieSlugs());
+  const slugsSet = new Set<string>();
   if (isMongoConfigured()) {
     try {
       const mongoDocs = await getMongoMovies();
-      for (const m of mongoDocs) {
-        if (m.slug) {
-          slugsSet.add(m.slug);
-          slugsSet.add(`${m.slug}.md`);
-        }
-        if (m.tmdb_id) {
-          slugsSet.add(String(m.tmdb_id));
-        }
-        if (m.title) {
-          const tSlug = cleanSlug(m.title);
-          if (tSlug) {
-            slugsSet.add(tSlug);
-            slugsSet.add(`${tSlug}-2026`);
-            if (m.tmdb_id) {
-              slugsSet.add(`${tSlug}-${m.tmdb_id}`);
+      if (mongoDocs && mongoDocs.length > 0) {
+        for (const m of mongoDocs) {
+          if (m.slug) {
+            slugsSet.add(m.slug);
+            slugsSet.add(`${m.slug}.md`);
+          }
+          if (m.tmdb_id) {
+            slugsSet.add(String(m.tmdb_id));
+          }
+          if (m.title) {
+            const tSlug = cleanSlug(m.title);
+            if (tSlug) {
+              slugsSet.add(tSlug);
+              slugsSet.add(`${tSlug}-2026`);
+              if (m.tmdb_id) {
+                slugsSet.add(`${tSlug}-${m.tmdb_id}`);
+              }
             }
           }
         }
+        return Array.from(slugsSet);
       }
     } catch {}
+  }
+
+  // Fallback to local files only if MongoDB is not configured or returned no documents
+  for (const s of getAllCustomMovieSlugs()) {
+    slugsSet.add(s);
   }
   return Array.from(slugsSet);
 }
