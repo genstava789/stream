@@ -649,8 +649,8 @@ input:focus-visible {
   min-height: 100% !important;
   object-fit: cover !important;
   object-position: center !important;
-  background: #000000 !important;
-  background-color: #000000 !important;
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Fix Big Center Play Button: Never jump or shift position, always visible when paused */
@@ -668,7 +668,8 @@ input:focus-visible {
   z-index: 10 !important;
 }
 
-.plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__control--overlaid {
+.plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__control--overlaid,
+.plyr-custom-wrapper .plyr--stopped .plyr__control--overlaid {
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: auto !important;
@@ -678,6 +679,18 @@ input:focus-visible {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* Poster visibility: guaranteed visible whenever video is paused or stopped */
+.plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__poster,
+.plyr-custom-wrapper .plyr--stopped .plyr__poster {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.plyr-custom-wrapper .plyr.plyr--playing .plyr__poster {
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 .plyr-custom-wrapper .plyr__control--overlaid:hover {

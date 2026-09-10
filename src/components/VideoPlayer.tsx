@@ -127,7 +127,7 @@ function cleanSubtitleText(raw: string): string {
   if (!raw) return '';
   let text = raw;
   // If ASS/SSA event format (8 comma-separated metadata fields before dialogue text)
-  const assMatch = text.match(/^\d+,\d*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)$/s);
+  const assMatch = text.match(/^\d+,\d*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,([\s\S]*)$/);
   if (assMatch) {
     text = assMatch[1];
   }
@@ -183,15 +183,10 @@ export default function VideoPlayer({
   const youtubeId = getYouTubeId(effectiveVideoUrl);
   const vimeoId = getVimeoId(effectiveVideoUrl);
 
-  const pagePath = typeof window !== 'undefined' ? window.location.pathname : '';
-  const storageKey =
-    typeof window !== 'undefined' && effectiveVideoUrl
-      ? `filmes_progress_${encodeURIComponent(pagePath || effectiveVideoUrl.split('?')[0])}`
-      : null;
-  const legacyStorageKey =
-    typeof window !== 'undefined' && effectiveVideoUrl
-      ? `filmes_progress_${encodeURIComponent(effectiveVideoUrl.split('?')[0])}`
-      : null;
+  const storageKey = effectiveVideoUrl
+    ? `filmes_progress_${encodeURIComponent(effectiveVideoUrl.split('?')[0])}`
+    : null;
+  const legacyStorageKey = storageKey;
 
   // Helper to normalize subtitle prop into array
   const normalizeSubtitles = useCallback((): SubtitleTrackItem[] => {
@@ -587,6 +582,79 @@ export default function VideoPlayer({
         let segStart = 52;
         const fetchedClusterOffsets = new Set<number>();
 
+        const fetchClusterForTime = async (targetSec: number) => {
+          if (isCancelled) return;
+          if (cuePoints.length === 0) {
+            setTimeout(() => {
+              if (!isCancelled && videoElement) {
+                fetchClusterForTime(videoElement.currentTime || 0);
+              }
+            }, 600);
+            return;
+          }
+
+          const targetMs = Math.max(0, targetSec * 1000);
+          let chosen = cuePoints[0];
+          for (let i = 0; i < cuePoints.length; i++) {
+            const pt = cuePoints[i];
+            if (pt.time <= targetMs) {
+              chosen = pt;
+            } else {
+              break;
+            }
+          }
+
+          if (!chosen) return;
+          const clusterOffset = segStart + chosen.clusterPos;
+          if (fetchedClusterOffsets.has(clusterOffset)) return;
+          fetchedClusterOffsets.add(clusterOffset);
+
+          try {
+            const res = await fetch(effectiveVideoUrl, {
+              headers: { Range: `bytes=${clusterOffset}-${clusterOffset + 3670016}` },
+              signal: abortController.signal,
+            });
+            if (!res.ok || isCancelled) return;
+            const clusterBuf = new Uint8Array(await res.arrayBuffer());
+
+            const clusterDecoder = new ebmlStream.EbmlStreamDecoder({
+              bufferTagIds: [
+                ebmlStream.EbmlTagId.Timecode,
+                ebmlStream.EbmlTagId.BlockGroup,
+                ebmlStream.EbmlTagId.Block,
+                ebmlStream.EbmlTagId.BlockDuration,
+              ],
+            });
+
+            let clusterTimecode = 0;
+            clusterDecoder.on('data', (chunk: any) => {
+              if (chunk.id === ebmlStream.EbmlTagId.Timecode) {
+                clusterTimecode = chunk.data;
+              }
+              if (chunk.id === ebmlStream.EbmlTagId.BlockGroup) {
+                const block = chunk.Children?.find((c: any) => c.id === ebmlStream.EbmlTagId.Block);
+                const duration =
+                  chunk.Children?.find((c: any) => c.id === ebmlStream.EbmlTagId.BlockDuration)?.data || 3000;
+                if (block && typeof block.track === 'number') {
+                  const startSec = (clusterTimecode + block.value) / 1000;
+                  const endSec = startSec + (duration / 1000);
+                  const payloadStr =
+                    block.payload && typeof block.payload.toString === 'function'
+                      ? block.payload.toString('utf8')
+                      : '';
+                  addParsedCue(block.track, startSec, endSec, payloadStr);
+                }
+              }
+            });
+
+            clusterDecoder.write(clusterBuf);
+          } catch (e) {}
+        };
+
+        fetchClusterForTimeRef.current = (t: number) => {
+          fetchClusterForTime(t);
+        };
+
         // Pre-fetch header and Cues in background so user skips are instant
         (async () => {
           try {
@@ -665,79 +733,6 @@ export default function VideoPlayer({
             }
           } catch (e) {}
         })();
-
-        const fetchClusterForTime = async (targetSec: number) => {
-          if (isCancelled) return;
-          if (cuePoints.length === 0) {
-            setTimeout(() => {
-              if (!isCancelled && videoElement) {
-                fetchClusterForTime(videoElement.currentTime || 0);
-              }
-            }, 600);
-            return;
-          }
-
-          const targetMs = Math.max(0, targetSec * 1000);
-          let chosen = cuePoints[0];
-          for (let i = 0; i < cuePoints.length; i++) {
-            const pt = cuePoints[i];
-            if (pt.time <= targetMs) {
-              chosen = pt;
-            } else {
-              break;
-            }
-          }
-
-          if (!chosen) return;
-          const clusterOffset = segStart + chosen.clusterPos;
-          if (fetchedClusterOffsets.has(clusterOffset)) return;
-          fetchedClusterOffsets.add(clusterOffset);
-
-          try {
-            const res = await fetch(effectiveVideoUrl, {
-              headers: { Range: `bytes=${clusterOffset}-${clusterOffset + 3670016}` },
-              signal: abortController.signal,
-            });
-            if (!res.ok || isCancelled) return;
-            const clusterBuf = new Uint8Array(await res.arrayBuffer());
-
-            const clusterDecoder = new ebmlStream.EbmlStreamDecoder({
-              bufferTagIds: [
-                ebmlStream.EbmlTagId.Timecode,
-                ebmlStream.EbmlTagId.BlockGroup,
-                ebmlStream.EbmlTagId.Block,
-                ebmlStream.EbmlTagId.BlockDuration,
-              ],
-            });
-
-            let clusterTimecode = 0;
-            clusterDecoder.on('data', (chunk: any) => {
-              if (chunk.id === ebmlStream.EbmlTagId.Timecode) {
-                clusterTimecode = chunk.data;
-              }
-              if (chunk.id === ebmlStream.EbmlTagId.BlockGroup) {
-                const block = chunk.Children?.find((c: any) => c.id === ebmlStream.EbmlTagId.Block);
-                const duration =
-                  chunk.Children?.find((c: any) => c.id === ebmlStream.EbmlTagId.BlockDuration)?.data || 3000;
-                if (block && typeof block.track === 'number') {
-                  const startSec = (clusterTimecode + block.value) / 1000;
-                  const endSec = startSec + (duration / 1000);
-                  const payloadStr =
-                    block.payload && typeof block.payload.toString === 'function'
-                      ? block.payload.toString('utf8')
-                      : '';
-                  addParsedCue(block.track, startSec, endSec, payloadStr);
-                }
-              }
-            });
-
-            clusterDecoder.write(clusterBuf);
-          } catch (e) {}
-        };
-
-        fetchClusterForTimeRef.current = (t: number) => {
-          fetchClusterForTime(t);
-        };
 
         // Listen to seeked event: fetch cluster at new seek location immediately
         let seekDebounce: NodeJS.Timeout | null = null;
@@ -1064,6 +1059,7 @@ export default function VideoPlayer({
         if (isCancelled || !videoRef.current) return;
 
         const player = new PlyrModule(videoRef.current, {
+          poster: poster || undefined,
           controls: [
             'play-large',
             'play',
@@ -1092,7 +1088,12 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
-        // Ensure big center play button and controls are properly visible on initial mount
+        // Ensure big center play button, poster, and controls are immediately visible
+        if (player.elements && player.elements.container) {
+          player.elements.container.classList.add('plyr--stopped');
+          player.elements.container.classList.add('plyr--full-ui');
+        }
+
         player.on('ready', () => {
           if (player.elements && player.elements.container) {
             player.elements.container.classList.add('plyr--stopped');
@@ -1263,7 +1264,7 @@ export default function VideoPlayer({
       }
       fetchMp4CuesForTimeRef.current = null;
     };
-  }, [effectiveVideoUrl, youtubeId, vimeoId, storageKey, isHls, isMkv, isMp4]);
+  }, [effectiveVideoUrl, youtubeId, vimeoId, isHls, isMkv, isMp4]);
 
   // Next episode countdown timer
   useEffect(() => {
@@ -1532,10 +1533,13 @@ export default function VideoPlayer({
 
           {/* ── 5. Video Canvas Container with Declarative <video> in JSX ── */}
           <div
-            className="relative w-full overflow-hidden bg-black flex items-center justify-center"
+            className="relative w-full overflow-hidden bg-black flex items-center justify-center plyr-custom-wrapper"
             style={{
               aspectRatio: '16/9',
               maxHeight: '800px',
+              backgroundImage: poster ? `url("${poster}")` : undefined,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
             }}
           >
             {hasError ? (
@@ -1620,7 +1624,7 @@ export default function VideoPlayer({
                 >
                   <source
                     src={effectiveVideoUrl}
-                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
+                    type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : (isMkv ? 'video/x-matroska' : 'video/mp4')}
                   />
                   {resolvedSubtitles.map((sub, idx) => (
                     <track

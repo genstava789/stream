@@ -266,6 +266,7 @@ export default async function MovieDetailPage({ params }: PageProps) {
         <>
           <div className="w-full bg-black mb-5">
             <VideoPlayer
+              key={videoUrl || params.id}
               videoUrl={videoUrl}
               title={videoTitle}
               poster={thumbnailImage}
