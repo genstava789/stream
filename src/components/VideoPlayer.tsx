@@ -161,7 +161,6 @@ export default function VideoPlayer({
   // Next episode prompt state
   const [showNextPrompt, setShowNextPrompt] = useState(false);
   const [nextCountdown, setNextCountdown] = useState(8);
-  const [isMounted, setIsMounted] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerInstanceRef = useRef<any>(null);
@@ -217,7 +216,55 @@ export default function VideoPlayer({
     return [];
   }, [subtitles]);
 
-  const extSubs = normalizeSubtitles();
+  const [resolvedSubtitles, setResolvedSubtitles] = useState<SubtitleTrackItem[]>(() => normalizeSubtitles());
+
+  // Convert external .srt to WebVTT blob URLs so browser <track> can parse them
+  useEffect(() => {
+    let active = true;
+    const rawSubs = normalizeSubtitles();
+    if (rawSubs.length === 0) {
+      setResolvedSubtitles([]);
+      return;
+    }
+
+    const createdBlobs: string[] = [];
+
+    const processSubs = async () => {
+      const processed: SubtitleTrackItem[] = [];
+      for (const s of rawSubs) {
+        if (!s.src) continue;
+        if (s.src.toLowerCase().endsWith('.srt') || s.src.includes('.srt?')) {
+          try {
+            const res = await fetch(s.src);
+            if (res.ok) {
+              const srtText = await res.text();
+              const vttText = 'WEBVTT\n\n' + srtText
+                .replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n')
+                .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+              const blob = new Blob([vttText], { type: 'text/vtt' });
+              const blobUrl = URL.createObjectURL(blob);
+              createdBlobs.push(blobUrl);
+              processed.push({ ...s, src: blobUrl });
+              continue;
+            }
+          } catch (e) {}
+        }
+        processed.push(s);
+      }
+      if (active) {
+        setResolvedSubtitles(processed);
+      }
+    };
+
+    processSubs();
+
+    return () => {
+      active = false;
+      createdBlobs.forEach(b => URL.revokeObjectURL(b));
+    };
+  }, [subtitles, normalizeSubtitles]);
+
   const isHls = effectiveVideoUrl.includes('.m3u8');
   const isMkv = effectiveVideoUrl.toLowerCase().includes('.mkv') || effectiveVideoUrl.includes('matroska');
   const isMp4 = !isHls && !isMkv && (effectiveVideoUrl.toLowerCase().includes('.mp4') || effectiveVideoUrl.toLowerCase().includes('.m4v') || !effectiveVideoUrl.includes('.'));
@@ -230,7 +277,6 @@ export default function VideoPlayer({
     let isCancelled = false;
     const abortController = new AbortController();
 
-    setIsMounted(true);
     setHasError(false);
     setReported(false);
     setIsPlaying(false);
@@ -396,9 +442,39 @@ export default function VideoPlayer({
       });
     }
 
+    const activateTrackInPlyr = (targetTextTrack: TextTrack) => {
+      targetTextTrack.mode = 'showing';
+      const player = playerInstanceRef.current;
+      if (player) {
+        try {
+          if (player.captions) {
+            player.captions.setup();
+          }
+        } catch (e) {}
+
+        setTimeout(() => {
+          if (isCancelled || !playerInstanceRef.current) return;
+          try {
+            const p = playerInstanceRef.current;
+            const validTracks =
+              p.captions && typeof p.captions.getTracks === 'function'
+                ? p.captions.getTracks()
+                : Array.from(videoElement.textTracks || []).filter(
+                    (t: any) => t.kind === 'subtitles' || t.kind === 'captions'
+                  );
+
+            const trackIdx = validTracks.findIndex((t: any) => t === targetTextTrack);
+            if (trackIdx !== -1) {
+              p.currentTrack = trackIdx;
+              p.toggleCaptions(true);
+            }
+          } catch (e) {}
+        }, 80);
+      }
+    };
+
     // ── MKV EMBEDDED SOFTCODED SUBTITLES DEMUXER WITH ON-DEMAND SEEK ──
-    const initMkvDemuxer = async () => {
-      if (!isMkv) return;
+    const initMkvDemuxer = async (optionalHeadBuf?: Uint8Array) => {
       try {
         const { SubtitleParser } = await import('matroska-subtitles');
         const ebmlStream = await import('ebml-stream');
@@ -486,6 +562,7 @@ export default function VideoPlayer({
               const target = mkvTracksMapRef.current.get(chosen.trackNumber);
               if (target) {
                 target.mode = 'showing';
+                activateTrackInPlyr(target);
               }
             }
           }
@@ -513,12 +590,15 @@ export default function VideoPlayer({
         // Pre-fetch header and Cues in background so user skips are instant
         (async () => {
           try {
-            const headRes = await fetch(effectiveVideoUrl, {
-              headers: { Range: 'bytes=0-262143' },
-              signal: abortController.signal,
-            });
-            if (!headRes.ok || isCancelled) return;
-            const headBuf = new Uint8Array(await headRes.arrayBuffer());
+            let headBuf = optionalHeadBuf;
+            if (!headBuf) {
+              const headRes = await fetch(effectiveVideoUrl, {
+                headers: { Range: 'bytes=0-262143' },
+                signal: abortController.signal,
+              });
+              if (!headRes.ok || isCancelled) return;
+              headBuf = new Uint8Array(await headRes.arrayBuffer());
+            }
 
             // Feed parser to emit tracks immediately
             try {
@@ -699,16 +779,16 @@ export default function VideoPlayer({
     };
 
     // ── MP4 EMBEDDED SOFTCODED SUBTITLES DEMUXER WITH ON-DEMAND SEEK ──
-    const initMp4Demuxer = async () => {
-      if (!isMp4) return;
+    const initMp4Demuxer = async (optionalHeadBuf?: Uint8Array) => {
       try {
         const { detectMp4Subtitles, fetchMp4CuesForRange } = await import('@/lib/mp4Subtitles');
-        if (isCancelled) return;
+        if (isCancelled) return [];
 
         const mp4Tracks = await detectMp4Subtitles(effectiveVideoUrl, {
           signal: abortController.signal,
+          initialHeadBuf: optionalHeadBuf,
         });
-        if (isCancelled || !videoRef.current || mp4Tracks.length === 0) return;
+        if (isCancelled || !videoRef.current || mp4Tracks.length === 0) return [];
 
         const addedCuesSet = new Set<string>();
         const fetchedCuesIndexSet = new Set<number>();
@@ -790,6 +870,7 @@ export default function VideoPlayer({
             const target = mp4TracksMapRef.current.get(chosen.trackNumber);
             if (target) {
               target.mode = 'showing';
+              activateTrackInPlyr(target);
             }
           }
         }
@@ -884,9 +965,55 @@ export default function VideoPlayer({
           videoElement.removeEventListener('timeupdate', onTimeUpdate);
           fetchMp4CuesForTimeRef.current = null;
         };
+
+        return mp4Tracks;
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.log('MP4 subtitle demuxer complete or handled:', err?.message);
+        }
+        return [];
+      }
+    };
+
+    // ── UNIFIED EMBEDDED SUBTITLE DEMUXER (AUTO-DETECTS MKV/EBML & MP4/ISOBMFF) ──
+    const initSubtitlesDemuxer = async () => {
+      if (isHls) return;
+      try {
+        let headBuf: Uint8Array | null = null;
+        try {
+          const headRes = await fetch(effectiveVideoUrl, {
+            headers: { Range: 'bytes=0-262143' },
+            signal: abortController.signal,
+          });
+          if (headRes.ok) {
+            headBuf = new Uint8Array(await headRes.arrayBuffer());
+          }
+        } catch (e) {}
+
+        if (isCancelled) return;
+
+        // Sniff container magic bytes:
+        // 0x1a 0x45 0xdf 0xa3 = EBML / Matroska
+        const isEbml =
+          headBuf &&
+          headBuf.length >= 4 &&
+          headBuf[0] === 0x1a &&
+          headBuf[1] === 0x45 &&
+          headBuf[2] === 0xdf &&
+          headBuf[3] === 0xa3;
+
+        if (isEbml || isMkv) {
+          await initMkvDemuxer(headBuf || undefined);
+        } else {
+          const mp4Tracks = await initMp4Demuxer(headBuf || undefined);
+          if ((!mp4Tracks || mp4Tracks.length === 0) && !isCancelled) {
+            await initMkvDemuxer(headBuf || undefined);
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          if (isMkv) initMkvDemuxer();
+          else initMp4Demuxer();
         }
       }
     };
@@ -965,6 +1092,14 @@ export default function VideoPlayer({
           fullscreen: { enabled: true, fallback: true, iosNative: true },
         });
 
+        // Ensure big center play button and controls are properly visible on initial mount
+        player.on('ready', () => {
+          if (player.elements && player.elements.container) {
+            player.elements.container.classList.add('plyr--stopped');
+            player.elements.container.classList.add('plyr--full-ui');
+          }
+        });
+
         // If user presses play and there is saved progress near start, auto-resume
         player.on('play', () => {
           setIsPlaying(true);
@@ -1004,6 +1139,9 @@ export default function VideoPlayer({
         player.on('pause', () => {
           setIsPlaying(false);
           saveProgress();
+          if (player.elements && player.elements.container) {
+            player.elements.container.classList.add('plyr--stopped');
+          }
         });
 
         player.on('waiting', () => {
@@ -1078,8 +1216,7 @@ export default function VideoPlayer({
 
         playerInstanceRef.current = player;
         scanSubtitleTracks(hlsInstanceRef.current);
-        initMkvDemuxer();
-        initMp4Demuxer();
+        initSubtitlesDemuxer();
       } catch (err) {
         console.error('Error loading video player modules:', err);
       }
@@ -1395,7 +1532,7 @@ export default function VideoPlayer({
 
           {/* ── 5. Video Canvas Container with Declarative <video> in JSX ── */}
           <div
-            className="relative w-full overflow-hidden bg-black flex items-center justify-center plyr-custom-wrapper"
+            className="relative w-full overflow-hidden bg-black flex items-center justify-center"
             style={{
               aspectRatio: '16/9',
               maxHeight: '800px',
@@ -1475,29 +1612,26 @@ export default function VideoPlayer({
               >
                 <video
                   ref={videoRef}
-                  src={isMounted ? effectiveVideoUrl : undefined}
-                  className="plyr-react plyr w-full h-full"
+                  src={effectiveVideoUrl}
+                  className="w-full h-full"
                   playsInline
                   crossOrigin="anonymous"
                   poster={poster}
                 >
                   <source
-                    src={isMounted ? effectiveVideoUrl : ''}
+                    src={effectiveVideoUrl}
                     type={effectiveVideoUrl.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'}
                   />
-                  {isMounted && isMkv && <source src={effectiveVideoUrl} type="video/x-matroska" />}
-
-                  {isMounted &&
-                    extSubs.map((sub, idx) => (
-                      <track
-                        key={`${sub.src}-${idx}`}
-                        kind="subtitles"
-                        label={sub.label || `Subtitle ${idx + 1}`}
-                        srcLang={sub.srcLang || 'id'}
-                        src={sub.src}
-                        default={sub.default || idx === 0}
-                      />
-                    ))}
+                  {resolvedSubtitles.map((sub, idx) => (
+                    <track
+                      key={`${sub.src}-${idx}`}
+                      kind="subtitles"
+                      label={sub.label || `Subtitle ${idx + 1}`}
+                      srcLang={sub.srcLang || 'id'}
+                      src={sub.src}
+                      default={sub.default || idx === 0}
+                    />
+                  ))}
                   Your browser does not support the video tag.
                 </video>
               </div>

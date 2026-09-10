@@ -98,6 +98,9 @@ export function decodeMp4SubtitleSample(data: Uint8Array, codec: string): string
 
   // 1. tx3g or plain text (2-byte length header followed by text)
   const len = (data[0] << 8) | data[1];
+  if (len === 0) {
+    return '';
+  }
   if (len > 0 && len <= data.length - 2) {
     try {
       const textBytes = data.subarray(2, 2 + len);
@@ -123,13 +126,16 @@ export function decodeMp4SubtitleSample(data: Uint8Array, codec: string): string
     }
   }
 
-  // 3. Fallback: UTF-8 decode
-  try {
-    const raw = new TextDecoder('utf-8').decode(data);
-    return raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
-  } catch {
-    return '';
+  // 3. Fallback: UTF-8 decode only for non-tx3g or explicit text
+  if (codec !== 'tx3g') {
+    try {
+      const raw = new TextDecoder('utf-8').decode(data);
+      const cleaned = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+      if (cleaned !== 'encd') return cleaned;
+    } catch {}
   }
+
+  return '';
 }
 
 /**
@@ -148,7 +154,10 @@ export function parseSubtitleTrak(trakBuf: Uint8Array, trackNumber: number): Mp4
       handlerType === 'text' ||
       handlerType === 'sbtl' ||
       handlerType === 'subt' ||
-      handlerType === 'clcp';
+      handlerType === 'clcp' ||
+      handlerType === 'tx3g' ||
+      handlerType === 'wvtt' ||
+      handlerType === 'subp';
     if (!isSub) return null;
 
     let trackLabel = '';
@@ -321,23 +330,27 @@ export function parseSubtitleTrak(trakBuf: Uint8Array, trackNumber: number): Mp4
  */
 export async function detectMp4Subtitles(
   videoUrl: string,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; initialHeadBuf?: Uint8Array } = {}
 ): Promise<Mp4SubtitleTrack[]> {
   try {
-    // 1. Fetch first 256KB to inspect ftyp, moov, and initial tracks
-    const headRes = await fetch(videoUrl, {
-      headers: { Range: 'bytes=0-262143' },
-      signal: options.signal,
-    });
-    if (!headRes.ok) return [];
-
-    const contentRange = headRes.headers.get('content-range') || '';
+    let headBuf = options.initialHeadBuf;
     let totalFileSize = 0;
-    const matchSize = contentRange.match(/\/(\d+)$/);
-    if (matchSize) totalFileSize = parseInt(matchSize[1], 10);
 
-    const headBuf = new Uint8Array(await headRes.arrayBuffer());
-    if (headBuf.length < 16) return [];
+    if (!headBuf || headBuf.length < 16) {
+      // 1. Fetch first 256KB to inspect ftyp, moov, and initial tracks
+      const headRes = await fetch(videoUrl, {
+        headers: { Range: 'bytes=0-262143' },
+        signal: options.signal,
+      });
+      if (!headRes.ok) return [];
+
+      const contentRange = headRes.headers.get('content-range') || '';
+      const matchSize = contentRange.match(/\/(\d+)$/);
+      if (matchSize) totalFileSize = parseInt(matchSize[1], 10);
+
+      headBuf = new Uint8Array(await headRes.arrayBuffer());
+      if (headBuf.length < 16) return [];
+    }
 
     let moovStart = -1;
     let moovSize = 0;
