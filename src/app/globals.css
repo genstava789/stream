@@ -624,7 +624,16 @@ input:focus-visible {
   --plyr-tooltip-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
 }
 
-.plyr-custom-wrapper,
+.plyr-custom-wrapper {
+  border-radius: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  min-height: 100% !important;
+  overflow: hidden !important;
+}
+
 .plyr-custom-wrapper .plyr,
 .plyr-custom-wrapper .plyr--video,
 .plyr-custom-wrapper .plyr__video-wrapper {
@@ -634,8 +643,8 @@ input:focus-visible {
   max-width: 100% !important;
   max-height: 100% !important;
   min-height: 100% !important;
-  background: #000000 !important;
-  background-color: #000000 !important;
+  background: transparent !important;
+  background-color: transparent !important;
   overflow: hidden !important;
 }
 
@@ -669,7 +678,8 @@ input:focus-visible {
 }
 
 .plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__control--overlaid,
-.plyr-custom-wrapper .plyr--stopped .plyr__control--overlaid {
+.plyr-custom-wrapper .plyr--stopped .plyr__control--overlaid,
+.plyr-custom-wrapper .plyr--paused .plyr__control--overlaid {
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: auto !important;
@@ -683,7 +693,8 @@ input:focus-visible {
 
 /* Poster visibility: guaranteed visible whenever video is paused or stopped */
 .plyr-custom-wrapper .plyr:not(.plyr--playing) .plyr__poster,
-.plyr-custom-wrapper .plyr--stopped .plyr__poster {
+.plyr-custom-wrapper .plyr--stopped .plyr__poster,
+.plyr-custom-wrapper .plyr--paused .plyr__poster {
   opacity: 1 !important;
   visibility: visible !important;
 }

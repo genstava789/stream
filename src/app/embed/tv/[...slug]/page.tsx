@@ -154,6 +154,7 @@ export default async function TVEpisodeEmbedPage({ params }: PageProps) {
 
       <div className="w-full h-full">
         <VideoPlayer
+          key={videoUrl || params.slug.join('/')}
           videoUrl={videoUrl}
           title={videoTitle}
           poster={thumbnailImage}
