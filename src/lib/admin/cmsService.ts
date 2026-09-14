@@ -1908,13 +1908,14 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
 
     const slug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
 
-    // Check if featured or trending status changed: if so, ensure date & updatedAt are refreshed to now!
+    // Check if featured or trending status was CHECKED (activated from false -> true):
+    // Only when CHECKED do we auto-update date to now! When UNCHECKED, do NOT update date.
     if (isMongoConfigured()) {
       try {
         const existing = await getMongoMovieBySlug(slug);
-        const featChanged = existing && cleanFrontmatter.featured !== undefined && Boolean(cleanFrontmatter.featured) !== Boolean(existing.featured);
-        const trendChanged = existing && cleanFrontmatter.trending !== undefined && Boolean(cleanFrontmatter.trending) !== Boolean(existing.trending);
-        if (featChanged || trendChanged) {
+        const featActivated = existing && cleanFrontmatter.featured === true && !existing.featured;
+        const trendActivated = existing && cleanFrontmatter.trending === true && !existing.trending;
+        if (featActivated || trendActivated) {
           if (!newFrontmatter?.date || (existing.date && newFrontmatter.date === existing.date)) {
             cleanFrontmatter.updatedAt = Date.now();
             cleanFrontmatter.date = new Date(cleanFrontmatter.updatedAt).toISOString();
@@ -1949,13 +1950,14 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
   } else if (relativePath.endsWith('_index.md') || relativePath.endsWith('index.md')) {
     const showSlug = relativePath.split('/')[1];
 
-    // Check if featured or trending status changed: if so, ensure date & updatedAt are refreshed to now!
+    // Check if featured or trending status was CHECKED (activated from false -> true):
+    // Only when CHECKED do we auto-update date to now! When UNCHECKED, do NOT update date.
     if (isMongoConfigured()) {
       try {
         const existing = await getMongoTVShowBySlug(showSlug);
-        const featChanged = existing && cleanFrontmatter.featured !== undefined && Boolean(cleanFrontmatter.featured) !== Boolean(existing.featured);
-        const trendChanged = existing && cleanFrontmatter.trending !== undefined && Boolean(cleanFrontmatter.trending) !== Boolean(existing.trending);
-        if (featChanged || trendChanged) {
+        const featActivated = existing && cleanFrontmatter.featured === true && !existing.featured;
+        const trendActivated = existing && cleanFrontmatter.trending === true && !existing.trending;
+        if (featActivated || trendActivated) {
           if (!newFrontmatter?.date || (existing.date && newFrontmatter.date === existing.date)) {
             cleanFrontmatter.updatedAt = Date.now();
             cleanFrontmatter.date = new Date(cleanFrontmatter.updatedAt).toISOString();

@@ -729,19 +729,33 @@ export const EditModal: React.FC<EditModalProps> = ({
                           checked={Boolean(editingItem.frontmatter.featured)}
                           onChange={(e) => {
                             const isChecked = e.target.checked;
-                            const nowIso = new Date().toISOString();
-                            const nowTime = Date.now();
-                            setEditingItem((prev: any) => ({
-                              ...prev,
-                              frontmatter: {
-                                ...prev.frontmatter,
-                                featured: isChecked,
-                                date: nowIso,
-                                updatedAt: nowTime,
-                              },
-                              date: nowIso,
-                              updatedAt: nowTime,
-                            }));
+                            setEditingItem((prev: any) => {
+                              if (isChecked) {
+                                // Saat dicentang (check): otomatis update tanggal post ke waktu terbaru
+                                const nowIso = new Date().toISOString();
+                                const nowTime = Date.now();
+                                return {
+                                  ...prev,
+                                  frontmatter: {
+                                    ...prev.frontmatter,
+                                    featured: true,
+                                    date: nowIso,
+                                    updatedAt: nowTime,
+                                  },
+                                  date: nowIso,
+                                  updatedAt: nowTime,
+                                };
+                              } else {
+                                // Saat di-uncheck: hanya hilangkan centang, JANGAN update tanggal ke terbaru
+                                return {
+                                  ...prev,
+                                  frontmatter: {
+                                    ...prev.frontmatter,
+                                    featured: false,
+                                  },
+                                };
+                              }
+                            });
                           }}
                           className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
                         />
@@ -763,19 +777,33 @@ export const EditModal: React.FC<EditModalProps> = ({
                           checked={Boolean(editingItem.frontmatter.trending)}
                           onChange={(e) => {
                             const isChecked = e.target.checked;
-                            const nowIso = new Date().toISOString();
-                            const nowTime = Date.now();
-                            setEditingItem((prev: any) => ({
-                              ...prev,
-                              frontmatter: {
-                                ...prev.frontmatter,
-                                trending: isChecked,
-                                date: nowIso,
-                                updatedAt: nowTime,
-                              },
-                              date: nowIso,
-                              updatedAt: nowTime,
-                            }));
+                            setEditingItem((prev: any) => {
+                              if (isChecked) {
+                                // Saat dicentang (check): otomatis update tanggal post ke waktu terbaru
+                                const nowIso = new Date().toISOString();
+                                const nowTime = Date.now();
+                                return {
+                                  ...prev,
+                                  frontmatter: {
+                                    ...prev.frontmatter,
+                                    trending: true,
+                                    date: nowIso,
+                                    updatedAt: nowTime,
+                                  },
+                                  date: nowIso,
+                                  updatedAt: nowTime,
+                                };
+                              } else {
+                                // Saat di-uncheck: hanya hilangkan centang, JANGAN update tanggal ke terbaru
+                                return {
+                                  ...prev,
+                                  frontmatter: {
+                                    ...prev.frontmatter,
+                                    trending: false,
+                                  },
+                                };
+                              }
+                            });
                           }}
                           className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
                         />
