@@ -784,7 +784,12 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
         if (isMongoConfigured()) {
           const mongoMovies = await getMongoMovies().catch(() => []);
           if (mongoMovies && mongoMovies.length > 0) {
-            movieDocs = mongoMovies;
+            movieDocs = mongoMovies.filter((m) => {
+              const hasTmdb = m.tmdb_id && Number(m.tmdb_id) > 0;
+              const hasVideo = m.videourl && m.videourl.trim().length > 0;
+              const hasImage = m.image_url && m.image_url.trim().length > 0;
+              return Boolean(hasTmdb || hasVideo || hasImage);
+            });
           }
         }
 

@@ -628,11 +628,34 @@ export const EditModal: React.FC<EditModalProps> = ({
                       <label className="block text-xs font-bold text-slate-300">
                         Tanggal Post
                       </label>
-                      {(editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt) && (
-                        <span className="text-[10px] text-cyan-400 font-mono" title="Format: {{ time.Format &quot;2 Jan 2006, 15:04&quot; $t }}">
-                          {timeFormat("2 Jan 2006, 15:04", editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt)}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {(editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt) && (
+                          <span className="text-[10px] text-cyan-400 font-mono" title="Format: {{ time.Format &quot;2 Jan 2006, 15:04&quot; $t }}">
+                            {timeFormat("2 Jan 2006, 15:04", editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt)}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nowIso = new Date().toISOString();
+                            const nowTime = Date.now();
+                            setEditingItem((prev: any) => ({
+                              ...prev,
+                              frontmatter: {
+                                ...prev.frontmatter,
+                                date: nowIso,
+                                updatedAt: nowTime,
+                              },
+                              date: nowIso,
+                              updatedAt: nowTime,
+                            }));
+                          }}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition-colors"
+                          title="Perbarui ke tanggal & waktu saat ini (menjadikan post paling baru)"
+                        >
+                          ⚡ Set Sekarang
+                        </button>
+                      </div>
                     </div>
                     <input
                       type="datetime-local"
@@ -704,7 +727,22 @@ export const EditModal: React.FC<EditModalProps> = ({
                         <input
                           type="checkbox"
                           checked={Boolean(editingItem.frontmatter.featured)}
-                          onChange={(e) => updateFrontmatter('featured', e.target.checked)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            const nowIso = new Date().toISOString();
+                            const nowTime = Date.now();
+                            setEditingItem((prev: any) => ({
+                              ...prev,
+                              frontmatter: {
+                                ...prev.frontmatter,
+                                featured: isChecked,
+                                date: nowIso,
+                                updatedAt: nowTime,
+                              },
+                              date: nowIso,
+                              updatedAt: nowTime,
+                            }));
+                          }}
                           className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-black/50 border-white/20"
                         />
                         <span className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-1">
@@ -723,7 +761,22 @@ export const EditModal: React.FC<EditModalProps> = ({
                         <input
                           type="checkbox"
                           checked={Boolean(editingItem.frontmatter.trending)}
-                          onChange={(e) => updateFrontmatter('trending', e.target.checked)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            const nowIso = new Date().toISOString();
+                            const nowTime = Date.now();
+                            setEditingItem((prev: any) => ({
+                              ...prev,
+                              frontmatter: {
+                                ...prev.frontmatter,
+                                trending: isChecked,
+                                date: nowIso,
+                                updatedAt: nowTime,
+                              },
+                              date: nowIso,
+                              updatedAt: nowTime,
+                            }));
+                          }}
                           className="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 bg-black/50 border-white/20"
                         />
                         <span className="text-xs sm:text-sm font-bold text-rose-400 flex items-center gap-1">

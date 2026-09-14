@@ -4,7 +4,7 @@ import matter from 'gray-matter';
 import siteConfig from '@/config';
 import { memoryCache } from '@/lib/cache';
 import { serializeTinaMovie, serializeTinaTVShow } from '@/lib/tina/schema';
-import { isMongoConfigured } from '@/lib/mongodb/client';
+import { isMongoConfigured, getDatabase } from '@/lib/mongodb/client';
 import {
   saveMongoMovie,
   saveMongoTVShow,
@@ -170,6 +170,8 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
           if (Boolean(m[field])) {
             const slug = String(m.slug || '').replace(/\.(md|markdown)$/i, '').trim();
             if (!slug) continue;
+            // Ignore ghost records that have no TMDB ID, no video URL, and no image
+            if (!m.tmdb_id && !m.videourl && !m.image_url) continue;
             itemsMap.set(slug, {
               slug,
               tmdb_id: m.tmdb_id,
@@ -181,64 +183,64 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
             });
           }
         }
-      }
+      } else {
+        // 2. Source from Local Disk (only if Mongo is NOT configured)
+        if (fs.existsSync(VIDEO_DIR)) {
+          try {
+            const files = fs.readdirSync(VIDEO_DIR).filter((f) => /\.(md|markdown)$/i.test(f));
+            for (const file of files) {
+              const fullPath = path.join(VIDEO_DIR, file);
+              try {
+                const raw = fs.readFileSync(fullPath, 'utf8');
+                const { data } = matter(raw);
+                if (Boolean(data[field])) {
+                  const slug = file.replace(/\.(md|markdown)$/i, '').trim();
+                  let fileTime = 0;
+                  try {
+                    const stat = fs.statSync(fullPath);
+                    fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
+                  } catch {}
 
-      // 2. Source from Local Disk
-      if (fs.existsSync(VIDEO_DIR)) {
-        try {
-          const files = fs.readdirSync(VIDEO_DIR).filter((f) => /\.(md|markdown)$/i.test(f));
-          for (const file of files) {
-            const fullPath = path.join(VIDEO_DIR, file);
+                  const existing = itemsMap.get(slug);
+                  itemsMap.set(slug, {
+                    slug,
+                    tmdb_id: Number(data.tmdb_id) || existing?.tmdb_id,
+                    title: data.title || existing?.title || slug,
+                    weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : existing?.weight,
+                    updatedAt: Number(data.updatedAt) || Number(data.createdAt) || existing?.updatedAt || fileTime,
+                    createdAt: Number(data.createdAt) || existing?.createdAt || fileTime,
+                    release_date: data.release_date || existing?.release_date,
+                  });
+                }
+              } catch {}
+            }
+          } catch {}
+        }
+
+        // 3. Source from Static Registry fallback (only if Mongo is NOT configured)
+        if (itemsMap.size === 0 && typeof STATIC_MOVIE_FILES === 'object') {
+          for (const [relPath, raw] of Object.entries(STATIC_MOVIE_FILES)) {
+            if (!relPath.endsWith('.md') && !relPath.endsWith('.markdown')) continue;
             try {
-              const raw = fs.readFileSync(fullPath, 'utf8');
               const { data } = matter(raw);
               if (Boolean(data[field])) {
+                const normKey = relPath.replace(/\\/g, '/');
+                const file = path.basename(normKey);
                 const slug = file.replace(/\.(md|markdown)$/i, '').trim();
-                let fileTime = 0;
-                try {
-                  const stat = fs.statSync(fullPath);
-                  fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
-                } catch {}
-
-                const existing = itemsMap.get(slug);
-                itemsMap.set(slug, {
-                  slug,
-                  tmdb_id: Number(data.tmdb_id) || existing?.tmdb_id,
-                  title: data.title || existing?.title || slug,
-                  weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : existing?.weight,
-                  updatedAt: Number(data.updatedAt) || Number(data.createdAt) || existing?.updatedAt || fileTime,
-                  createdAt: Number(data.createdAt) || existing?.createdAt || fileTime,
-                  release_date: data.release_date || existing?.release_date,
-                });
+                if (!itemsMap.has(slug)) {
+                  itemsMap.set(slug, {
+                    slug,
+                    tmdb_id: Number(data.tmdb_id),
+                    title: data.title || slug,
+                    weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
+                    updatedAt: Number(data.updatedAt) || Number(data.createdAt) || 0,
+                    createdAt: Number(data.createdAt) || 0,
+                    release_date: data.release_date,
+                  });
+                }
               }
             } catch {}
           }
-        } catch {}
-      }
-
-      // 3. Source from Static Registry fallback
-      if (itemsMap.size === 0 && typeof STATIC_MOVIE_FILES === 'object') {
-        for (const [relPath, raw] of Object.entries(STATIC_MOVIE_FILES)) {
-          if (!relPath.endsWith('.md') && !relPath.endsWith('.markdown')) continue;
-          try {
-            const { data } = matter(raw);
-            if (Boolean(data[field])) {
-              const normKey = relPath.replace(/\\/g, '/');
-              const file = path.basename(normKey);
-              const slug = file.replace(/\.(md|markdown)$/i, '').trim();
-              if (!itemsMap.has(slug)) {
-                itemsMap.set(slug, {
-                  slug,
-                  tmdb_id: Number(data.tmdb_id),
-                  title: data.title || slug,
-                  weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
-                  updatedAt: Number(data.updatedAt) || Number(data.createdAt) || 0,
-                  createdAt: Number(data.createdAt) || 0,
-                  release_date: data.release_date,
-                });
-              }
-            }
-          } catch {}
         }
       }
 
@@ -290,11 +292,17 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
             }
           }
 
-          // C. Update MongoDB
+          // C. Update MongoDB safely (no upsert so deleted items are NEVER revived as ghost records)
           if (isMongoConfigured()) {
-            await saveMongoMovie({ slug, [field]: false } as any).catch((mErr) => {
+            try {
+              const db = await getDatabase();
+              await db.collection('movies').updateOne(
+                { $or: [{ slug }, { slug: `${slug}.md` }] },
+                { $set: { [field]: false } }
+              );
+            } catch (mErr) {
               console.warn(`[contentLimits] MongoDB movie demotion notice (${slug}):`, mErr);
-            });
+            }
           }
 
           // D. GitHub auto-commit if token available
@@ -322,6 +330,8 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
           if (Boolean(s[field])) {
             const showSlug = String(s.showSlug || '').replace(/\.(md|markdown)$/i, '').trim();
             if (!showSlug) continue;
+            // Ignore ghost records
+            if (!s.tmdb_id && !s.image_url && (!s.episodes || s.episodes.length === 0)) continue;
             itemsMap.set(showSlug, {
               slug: showSlug,
               tmdb_id: s.tmdb_id,
@@ -333,69 +343,69 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
             });
           }
         }
-      }
-
-      // 2. Source from Local Disk
-      if (fs.existsSync(TV_DIR)) {
-        try {
-          const dirs = fs.readdirSync(TV_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
-          for (const d of dirs) {
-            const showSlug = d.name;
-            const indexPath = fs.existsSync(path.join(TV_DIR, showSlug, '_index.md'))
-              ? path.join(TV_DIR, showSlug, '_index.md')
-              : fs.existsSync(path.join(TV_DIR, showSlug, 'index.md'))
-              ? path.join(TV_DIR, showSlug, 'index.md')
-              : null;
-
-            if (indexPath) {
-              try {
-                const raw = fs.readFileSync(indexPath, 'utf8');
-                const { data } = matter(raw);
-                if (Boolean(data[field])) {
-                  let fileTime = 0;
-                  try {
-                    const stat = fs.statSync(indexPath);
-                    fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
-                  } catch {}
-
-                  const existing = itemsMap.get(showSlug);
-                  itemsMap.set(showSlug, {
-                    slug: showSlug,
-                    tmdb_id: Number(data.tmdb_id) || existing?.tmdb_id,
-                    title: data.title || existing?.title || showSlug,
-                    weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : existing?.weight,
-                    updatedAt: Number(data.updatedAt) || Number(data.createdAt) || existing?.updatedAt || fileTime,
-                    createdAt: Number(data.createdAt) || existing?.createdAt || fileTime,
-                    release_date: data.first_air_date || data.release_date || existing?.release_date,
-                  });
-                }
-              } catch {}
-            }
-          }
-        } catch {}
-      }
-
-      // 3. Source from Static Registry fallback
-      if (itemsMap.size === 0 && typeof STATIC_TV_FILES === 'object') {
-        for (const [relPath, raw] of Object.entries(STATIC_TV_FILES)) {
-          if (!relPath.endsWith('_index.md') && !relPath.endsWith('index.md')) continue;
+      } else {
+        // 2. Source from Local Disk (only if Mongo is NOT configured)
+        if (fs.existsSync(TV_DIR)) {
           try {
-            const { data } = matter(raw);
-            if (Boolean(data[field])) {
-              const showSlug = relPath.replace(/^tv[\\\/]/, '').split(/[\\\/]/)[0];
-              if (showSlug && !itemsMap.has(showSlug)) {
-                itemsMap.set(showSlug, {
-                  slug: showSlug,
-                  tmdb_id: Number(data.tmdb_id),
-                  title: data.title || showSlug,
-                  weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
-                  updatedAt: Number(data.updatedAt) || Number(data.createdAt) || 0,
-                  createdAt: Number(data.createdAt) || 0,
-                  release_date: data.first_air_date || data.release_date,
-                });
+            const dirs = fs.readdirSync(TV_DIR, { withFileTypes: true }).filter((d) => d.isDirectory());
+            for (const d of dirs) {
+              const showSlug = d.name;
+              const indexPath = fs.existsSync(path.join(TV_DIR, showSlug, '_index.md'))
+                ? path.join(TV_DIR, showSlug, '_index.md')
+                : fs.existsSync(path.join(TV_DIR, showSlug, 'index.md'))
+                ? path.join(TV_DIR, showSlug, 'index.md')
+                : null;
+
+              if (indexPath) {
+                try {
+                  const raw = fs.readFileSync(indexPath, 'utf8');
+                  const { data } = matter(raw);
+                  if (Boolean(data[field])) {
+                    let fileTime = 0;
+                    try {
+                      const stat = fs.statSync(indexPath);
+                      fileTime = stat.mtimeMs || stat.birthtimeMs || 0;
+                    } catch {}
+
+                    const existing = itemsMap.get(showSlug);
+                    itemsMap.set(showSlug, {
+                      slug: showSlug,
+                      tmdb_id: Number(data.tmdb_id) || existing?.tmdb_id,
+                      title: data.title || existing?.title || showSlug,
+                      weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : existing?.weight,
+                      updatedAt: Number(data.updatedAt) || Number(data.createdAt) || existing?.updatedAt || fileTime,
+                      createdAt: Number(data.createdAt) || existing?.createdAt || fileTime,
+                      release_date: data.first_air_date || data.release_date || existing?.release_date,
+                    });
+                  }
+                } catch {}
               }
             }
           } catch {}
+        }
+
+        // 3. Source from Static Registry fallback (only if Mongo is NOT configured)
+        if (itemsMap.size === 0 && typeof STATIC_TV_FILES === 'object') {
+          for (const [relPath, raw] of Object.entries(STATIC_TV_FILES)) {
+            if (!relPath.endsWith('_index.md') && !relPath.endsWith('index.md')) continue;
+            try {
+              const { data } = matter(raw);
+              if (Boolean(data[field])) {
+                const showSlug = relPath.replace(/^tv[\\\/]/, '').split(/[\\\/]/)[0];
+                if (showSlug && !itemsMap.has(showSlug)) {
+                  itemsMap.set(showSlug, {
+                    slug: showSlug,
+                    tmdb_id: Number(data.tmdb_id),
+                    title: data.title || showSlug,
+                    weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
+                    updatedAt: Number(data.updatedAt) || Number(data.createdAt) || 0,
+                    createdAt: Number(data.createdAt) || 0,
+                    release_date: data.first_air_date || data.release_date,
+                  });
+                }
+              }
+            } catch {}
+          }
         }
       }
 
@@ -454,11 +464,17 @@ export async function enforceContentLimit(options: EnforceLimitOptions): Promise
             }
           }
 
-          // C. Update MongoDB
+          // C. Update MongoDB safely (no upsert so deleted shows are NEVER revived as ghost records)
           if (isMongoConfigured()) {
-            await saveMongoTVShow({ showSlug, [field]: false } as any).catch((mErr) => {
+            try {
+              const db = await getDatabase();
+              await db.collection('tv_shows').updateOne(
+                { $or: [{ showSlug }, { slug: showSlug }] },
+                { $set: { [field]: false } }
+              );
+            } catch (mErr) {
               console.warn(`[contentLimits] MongoDB TV demotion notice (${showSlug}):`, mErr);
-            });
+            }
           }
 
           // D. GitHub auto-commit if token available

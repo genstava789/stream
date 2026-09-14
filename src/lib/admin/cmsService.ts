@@ -83,9 +83,9 @@ export async function getGitHubConfigFromRequest(req: Request, explicitBody?: an
   const rawRepo =
     explicitBody?.repo ||
     headers.get('x-github-repo') ||
-    stored?.repo ||
+    process.env.GITHUB_REPO ||
     process.env.GITHUB_BACKUP_REPO ||
-    'filmes-content';
+    'stream';
 
   const rawBranch =
     explicitBody?.branch ||
@@ -503,34 +503,41 @@ export async function fetchPaginatedAdminContent(
   let totalAllMoviesCount = 0;
 
   if (mongoActive) {
-    rawMovies = mongoMoviesPaged.items.map((m) => {
-      const postIso = m.date || (m.createdAt || m.updatedAt ? new Date(m.createdAt || m.updatedAt).toISOString() : undefined);
-      return {
-        filename: `${m.slug}.md`,
-        slug: m.slug,
-        relativePath: `video/${m.slug}.md`,
-        frontmatter: {
-          tmdb_id: m.tmdb_id,
-          title: m.title,
-          videourl: m.videourl,
-          image_url: m.image_url,
-          deskripsi: m.deskripsi,
-          rating: m.rating,
-          featured: m.featured,
-          trending: m.trending,
-          language: normalizeLangCode(m.language),
-          weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+    rawMovies = mongoMoviesPaged.items
+      .filter((m) => {
+        const hasTmdb = m.tmdb_id && Number(m.tmdb_id) > 0;
+        const hasVideo = m.videourl && m.videourl.trim().length > 0;
+        const hasImage = m.image_url && m.image_url.trim().length > 0;
+        return Boolean(hasTmdb || hasVideo || hasImage);
+      })
+      .map((m) => {
+        const postIso = m.date || (m.createdAt || m.updatedAt ? new Date(m.createdAt || m.updatedAt).toISOString() : undefined);
+        return {
+          filename: `${m.slug}.md`,
+          slug: m.slug,
+          relativePath: `video/${m.slug}.md`,
+          frontmatter: {
+            tmdb_id: m.tmdb_id,
+            title: m.title,
+            videourl: m.videourl,
+            image_url: m.image_url,
+            deskripsi: m.deskripsi,
+            rating: m.rating,
+            featured: m.featured,
+            trending: m.trending,
+            language: normalizeLangCode(m.language),
+            weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+            date: postIso,
+            createdAt: m.createdAt,
+            updatedAt: m.updatedAt,
+            subtitles: m.subtitles,
+            duration: m.duration,
+          },
+          content: m.content || '',
           date: postIso,
-          createdAt: m.createdAt,
-          updatedAt: m.updatedAt,
-          subtitles: m.subtitles,
-          duration: m.duration,
-        },
-        content: m.content || '',
-        date: postIso,
-        updatedAt: m.updatedAt || Date.now(),
-      };
-    });
+          updatedAt: m.updatedAt || Date.now(),
+        };
+      });
 
     totalMovies = mongoMoviesPaged.total;
     totalMoviePages = mongoMoviesPaged.totalPages;
@@ -596,7 +603,14 @@ export async function fetchPaginatedAdminContent(
   let totalEpisodesCount = counts.totalEpisodes || 0;
 
   if (mongoActive) {
-    rawTvShows = mongoTVPaged.items.map((s) => {
+    rawTvShows = mongoTVPaged.items
+      .filter((s) => {
+        const hasTmdb = s.tmdb_id && Number(s.tmdb_id) > 0;
+        const hasImage = s.image_url && s.image_url.trim().length > 0;
+        const hasEpisodes = s.episodes && s.episodes.length > 0;
+        return Boolean(hasTmdb || hasImage || hasEpisodes);
+      })
+      .map((s) => {
       const postIso = s.date || (s.createdAt || s.updatedAt ? new Date(s.createdAt || s.updatedAt).toISOString() : undefined);
       return {
         showSlug: s.showSlug,
@@ -834,8 +848,24 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
       // 1. Fetch from MongoDB (Persistent Cloud Database) only if configured
       if (isMongoConfigured()) {
         try {
-          const mongoMovies = await getMongoMovies();
-          const mongoShows = await getMongoTVShows();
+          const [rawAllMovies, rawAllShows] = await Promise.all([
+            getMongoMovies(),
+            getMongoTVShows(),
+          ]);
+
+          const mongoMovies = (rawAllMovies || []).filter((m) => {
+            const hasTmdb = m.tmdb_id && Number(m.tmdb_id) > 0;
+            const hasVideo = m.videourl && m.videourl.trim().length > 0;
+            const hasImage = m.image_url && m.image_url.trim().length > 0;
+            return Boolean(hasTmdb || hasVideo || hasImage);
+          });
+
+          const mongoShows = (rawAllShows || []).filter((s) => {
+            const hasTmdb = s.tmdb_id && Number(s.tmdb_id) > 0;
+            const hasImage = s.image_url && s.image_url.trim().length > 0;
+            const hasEpisodes = s.episodes && s.episodes.length > 0;
+            return Boolean(hasTmdb || hasImage || hasEpisodes);
+          });
 
           for (const m of mongoMovies) {
             const rel = `video/${m.slug}.md`;
@@ -856,8 +886,12 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
                 weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
                 subtitles: m.subtitles,
                 duration: m.duration,
+                date: m.date,
+                createdAt: m.createdAt,
+                updatedAt: m.updatedAt,
               },
               content: m.content || '',
+              date: m.date,
               updatedAt: m.updatedAt || Date.now(),
             });
           }
@@ -876,8 +910,12 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
                 trending: s.trending,
                 language: s.language ? String(s.language).toUpperCase() : 'ID',
                 weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
+                date: s.date,
+                createdAt: s.createdAt,
+                updatedAt: s.updatedAt,
               },
               indexContent: s.content || '',
+              date: s.date,
               updatedAt: s.updatedAt || Date.now(),
               episodes: (s.episodes || []).map((ep) => ({
                 showSlug: s.showSlug,
@@ -1863,14 +1901,30 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
   }
 
   let fileContent = '';
-  const now = cleanFrontmatter.updatedAt;
   if (isMovie) {
     if (cleanFrontmatter.videourl && !isValidVideoUrl(cleanFrontmatter.videourl)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
-    fileContent = serializeTinaMovie(cleanFrontmatter, content || '');
     const slug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
+
+    // Check if featured or trending status changed: if so, ensure date & updatedAt are refreshed to now!
+    if (isMongoConfigured()) {
+      try {
+        const existing = await getMongoMovieBySlug(slug);
+        const featChanged = existing && cleanFrontmatter.featured !== undefined && Boolean(cleanFrontmatter.featured) !== Boolean(existing.featured);
+        const trendChanged = existing && cleanFrontmatter.trending !== undefined && Boolean(cleanFrontmatter.trending) !== Boolean(existing.trending);
+        if (featChanged || trendChanged) {
+          if (!newFrontmatter?.date || (existing.date && newFrontmatter.date === existing.date)) {
+            cleanFrontmatter.updatedAt = Date.now();
+            cleanFrontmatter.date = new Date(cleanFrontmatter.updatedAt).toISOString();
+          }
+        }
+      } catch {}
+    }
+
+    const now = cleanFrontmatter.updatedAt;
+    fileContent = serializeTinaMovie(cleanFrontmatter, content || '');
     try {
       await saveMongoMovie({
         slug,
@@ -1893,8 +1947,25 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
       console.warn('[updateAdminContent] MongoDB movie update notice:', mErr);
     }
   } else if (relativePath.endsWith('_index.md') || relativePath.endsWith('index.md')) {
-    fileContent = serializeTinaTVShow(cleanFrontmatter, content || '');
     const showSlug = relativePath.split('/')[1];
+
+    // Check if featured or trending status changed: if so, ensure date & updatedAt are refreshed to now!
+    if (isMongoConfigured()) {
+      try {
+        const existing = await getMongoTVShowBySlug(showSlug);
+        const featChanged = existing && cleanFrontmatter.featured !== undefined && Boolean(cleanFrontmatter.featured) !== Boolean(existing.featured);
+        const trendChanged = existing && cleanFrontmatter.trending !== undefined && Boolean(cleanFrontmatter.trending) !== Boolean(existing.trending);
+        if (featChanged || trendChanged) {
+          if (!newFrontmatter?.date || (existing.date && newFrontmatter.date === existing.date)) {
+            cleanFrontmatter.updatedAt = Date.now();
+            cleanFrontmatter.date = new Date(cleanFrontmatter.updatedAt).toISOString();
+          }
+        }
+      } catch {}
+    }
+
+    const now = cleanFrontmatter.updatedAt;
+    fileContent = serializeTinaTVShow(cleanFrontmatter, content || '');
     const mongoEps = Array.isArray(body.episodes)
       ? body.episodes.map((ep: any) => {
           const epVideo = cleanVideoUrl(ep.videourl || ep.video_url || (ep.frontmatter && (ep.frontmatter.videourl || ep.frontmatter.video_url)) || '');

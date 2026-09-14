@@ -1119,7 +1119,12 @@ export async function getAllCustomTVShowsForList(): Promise<any[]> {
         if (isMongoConfigured()) {
           const mongoShows = await getMongoTVShows().catch(() => []);
           if (mongoShows && mongoShows.length > 0) {
-            showDocs = mongoShows;
+            showDocs = mongoShows.filter((s) => {
+              const hasTmdb = s.tmdb_id && Number(s.tmdb_id) > 0;
+              const hasImage = s.image_url && s.image_url.trim().length > 0;
+              const hasEpisodes = s.episodes && s.episodes.length > 0;
+              return Boolean(hasTmdb || hasImage || hasEpisodes);
+            });
           }
         }
 

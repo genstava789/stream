@@ -435,6 +435,17 @@ export async function getPaginatedMongoMovies(
           filter.featured = true;
         }
 
+        // Exclude empty ghost records that have no valid video URL, no poster/image, and no TMDB ID
+        filter.$nor = [
+          {
+            $and: [
+              { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+              { $or: [{ videourl: { $exists: false } }, { videourl: '' }, { videourl: null }] },
+              { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+            ],
+          },
+        ];
+
         let sortQuery: any = { updatedAt: -1, createdAt: -1 };
         if (options.sort === 'oldest') {
           sortQuery = { updatedAt: 1, createdAt: 1 };
@@ -481,7 +492,20 @@ export async function getMongoMovies(): Promise<MongoMovie[]> {
         (async () => {
           try {
             const { movies } = await getCollectionsRaw();
-            return await movies.find({}).sort({ updatedAt: -1 }).toArray();
+            return await movies
+              .find({
+                $nor: [
+                  {
+                    $and: [
+                      { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+                      { $or: [{ videourl: { $exists: false } }, { videourl: '' }, { videourl: null }] },
+                      { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+                    ],
+                  },
+                ],
+              })
+              .sort({ updatedAt: -1 })
+              .toArray();
           } catch (err) {
             console.warn('[MongoDB] getMongoMovies error:', err);
             return [];
@@ -560,6 +584,13 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
   if (data.tmdb_id) queryOr.push({ tmdb_id: Number(data.tmdb_id) });
 
   const existing = await movies.findOne({ $or: queryOr }).catch(() => null);
+
+  // CRITICAL: If movie does NOT exist in MongoDB and no core fields were provided
+  // (e.g. from partial update or demotion of an item that was deleted), DO NOT upsert a blank ghost record!
+  if (!existing && !data.title && !data.videourl && !data.tmdb_id) {
+    return { slug } as any;
+  }
+
   const finalSlug = existing?.slug || slug;
 
   const resolvedCreatedAt = data.createdAt || existing?.createdAt || now;
@@ -672,6 +703,16 @@ export async function getPaginatedMongoTVShows(
           filter.featured = true;
         }
 
+        // Exclude empty ghost TV records that have no valid image and no TMDB ID
+        filter.$nor = [
+          {
+            $and: [
+              { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+              { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+            ],
+          },
+        ];
+
         let sortQuery: any = { updatedAt: -1, createdAt: -1 };
         if (options.sort === 'oldest') {
           sortQuery = { updatedAt: 1, createdAt: 1 };
@@ -734,9 +775,30 @@ export async function getMongoContentCounts(): Promise<{
     (async () => {
       try {
         const { movies, tvShows, episodes } = await getCollectionsRaw();
+        const validMovieFilter = {
+          $nor: [
+            {
+              $and: [
+                { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+                { $or: [{ videourl: { $exists: false } }, { videourl: '' }, { videourl: null }] },
+                { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+              ],
+            },
+          ],
+        };
+        const validTvFilter = {
+          $nor: [
+            {
+              $and: [
+                { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+                { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+              ],
+            },
+          ],
+        };
         const [totalMovies, totalTVShows, totalEpisodes] = await Promise.all([
-          movies.countDocuments(),
-          tvShows.countDocuments(),
+          movies.countDocuments(validMovieFilter),
+          tvShows.countDocuments(validTvFilter),
           episodes.countDocuments({ deleted: { $ne: true } }),
         ]);
         return { totalMovies, totalTVShows, totalEpisodes };
@@ -760,7 +822,19 @@ export async function getMongoTVShows(): Promise<(MongoTVShow & { episodes: Mong
         (async () => {
           try {
             const { tvShows, episodes } = await getCollectionsRaw();
-            const shows = await tvShows.find({}).sort({ updatedAt: -1 }).toArray();
+            const shows = await tvShows
+              .find({
+                $nor: [
+                  {
+                    $and: [
+                      { $or: [{ tmdb_id: { $exists: false } }, { tmdb_id: 0 }, { tmdb_id: null }] },
+                      { $or: [{ image_url: { $exists: false } }, { image_url: '' }, { image_url: null }] },
+                    ],
+                  },
+                ],
+              })
+              .sort({ updatedAt: -1 })
+              .toArray();
             const allEpisodes = await episodes.find({}).toArray();
 
             return shows.map((s) => ({
@@ -857,6 +931,13 @@ export async function saveMongoTVShow(
   if (data.tmdb_id) queryOr.push({ tmdb_id: Number(data.tmdb_id) });
 
   const existing = await tvShows.findOne({ $or: queryOr }).catch(() => null);
+
+  // CRITICAL: If TV show does NOT exist in MongoDB and no core fields or episodes were provided
+  // (e.g. from partial update or demotion of an item that was deleted), DO NOT upsert a blank ghost record!
+  if (!existing && !data.title && !data.tmdb_id && (!episodesList || episodesList.length === 0)) {
+    return { showSlug } as any;
+  }
+
   const finalShowSlug = existing?.showSlug || showSlug;
 
   const resolvedCreatedAt = data.createdAt || existing?.createdAt || now;
