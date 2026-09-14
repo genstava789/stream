@@ -23,6 +23,7 @@ import {
   serializeTinaTVShow,
   serializeTinaTVEpisode,
 } from '@/lib/tina/schema';
+import { getPostTimestamp } from '@/lib/dateFormat';
 import {
   getMongoMovies,
   getMongoTVShows,
@@ -278,13 +279,23 @@ export async function fetchPaginatedAdminContent(
                 const stat = fs.statSync(fullPath);
                 const { data, content } = matter(raw);
                 const slug = file.replace(/\.(md|markdown)$/i, '');
+                const rawDate = data?.date ? new Date(data.date).getTime() : 0;
+                const statTime = stat.birthtimeMs || stat.mtimeMs || 0;
+                const itemTime = rawDate || Number(data?.updatedAt) || Number(data?.createdAt) || statTime || 0;
+                const postIso = data?.date || (itemTime ? new Date(itemTime).toISOString() : undefined);
                 return {
                   filename: file,
                   slug,
                   relativePath: `video/${file}`,
-                  frontmatter: data || {},
+                  frontmatter: {
+                    ...data,
+                    date: postIso,
+                    createdAt: Number(data?.createdAt) || itemTime,
+                    updatedAt: Number(data?.updatedAt) || itemTime,
+                  },
                   content: content || '',
-                  updatedAt: Number(data?.updatedAt) || Number(data?.createdAt) || stat.mtimeMs || Date.now(),
+                  date: postIso,
+                  updatedAt: itemTime,
                 };
               } catch {
                 return null;
@@ -303,13 +314,22 @@ export async function fetchPaginatedAdminContent(
               seenSlugs.add(slug);
               try {
                 const { data, content } = matter(raw);
+                const rawDate = data?.date ? new Date(data.date).getTime() : 0;
+                const itemTime = rawDate || Number(data?.updatedAt) || Number(data?.createdAt) || 0;
+                const postIso = data?.date || (itemTime ? new Date(itemTime).toISOString() : undefined);
                 diskMovies.push({
                   filename: file,
                   slug,
                   relativePath: `video/${file}`,
-                  frontmatter: data || {},
+                  frontmatter: {
+                    ...data,
+                    date: postIso,
+                    createdAt: Number(data?.createdAt) || itemTime,
+                    updatedAt: Number(data?.updatedAt) || itemTime,
+                  },
                   content: content || '',
-                  updatedAt: Number(data?.updatedAt) || Number(data?.createdAt) || 0,
+                  date: postIso,
+                  updatedAt: itemTime,
                 });
               } catch {}
             }
@@ -321,6 +341,7 @@ export async function fetchPaginatedAdminContent(
               const showPath = path.join(TV_DIR, d.name);
               let indexData: any = {};
               let indexContent = '';
+              let statTime = 0;
               const indexPath = fs.existsSync(path.join(showPath, '_index.md'))
                 ? path.join(showPath, '_index.md')
                 : fs.existsSync(path.join(showPath, 'index.md'))
@@ -332,7 +353,15 @@ export async function fetchPaginatedAdminContent(
                 const parsed = matter(raw);
                 indexData = parsed.data || {};
                 indexContent = parsed.content || '';
+                try {
+                  const stat = fs.statSync(indexPath);
+                  statTime = stat.birthtimeMs || stat.mtimeMs || 0;
+                } catch {}
               }
+
+              const showRawDate = indexData?.date ? new Date(indexData.date).getTime() : 0;
+              const showTime = showRawDate || Number(indexData?.updatedAt) || Number(indexData?.createdAt) || statTime || 0;
+              const showIso = indexData?.date || (showTime ? new Date(showTime).toISOString() : undefined);
 
               const episodes: any[] = [];
               const entries = fs.readdirSync(showPath, { withFileTypes: true });
@@ -346,17 +375,24 @@ export async function fetchPaginatedAdminContent(
                     const raw = fs.readFileSync(path.join(seasonPath, epFile), 'utf8');
                     const { data, content } = matter(raw);
                     const epSlug = epFile.replace(/\.(md|markdown)$/i, '');
+                    const epRawDate = data?.date ? new Date(data.date).getTime() : 0;
+                    const epTime = epRawDate || Number(data?.updatedAt) || Number(data?.createdAt) || showTime;
                     episodes.push({
                       showSlug: d.name,
                       seasonFolder,
                       filename: epFile,
                       slug: epSlug,
                       relativePath: `tv/${d.name}/${seasonFolder}/${epFile}`,
-                      frontmatter: data || {},
+                      frontmatter: {
+                        ...data,
+                        date: data?.date || (epTime ? new Date(epTime).toISOString() : undefined),
+                        updatedAt: epTime,
+                      },
                       content: content || '',
                       displayTitle: data?.title || epSlug,
                       posterUrl: data?.image_url ? getImageUrl(data.image_url, 'w500') : null,
-                      updatedAt: Date.now(),
+                      date: data?.date || (epTime ? new Date(epTime).toISOString() : undefined),
+                      updatedAt: epTime,
                     });
                   }
                 }
@@ -365,9 +401,15 @@ export async function fetchPaginatedAdminContent(
               diskTV.push({
                 showSlug: d.name,
                 relativePath: `tv/${d.name}/_index.md`,
-                indexFrontmatter: indexData,
+                indexFrontmatter: {
+                  ...indexData,
+                  date: showIso,
+                  createdAt: Number(indexData?.createdAt) || showTime,
+                  updatedAt: Number(indexData?.updatedAt) || showTime,
+                },
                 indexContent,
-                updatedAt: Date.now(),
+                date: showIso,
+                updatedAt: showTime,
                 episodes,
               });
             }
@@ -387,7 +429,7 @@ export async function fetchPaginatedAdminContent(
                   relativePath: `tv/${showSlug}/_index.md`,
                   indexFrontmatter: {},
                   indexContent: '',
-                  updatedAt: Date.now(),
+                  updatedAt: 0,
                   episodes: [],
                 });
               }
@@ -396,14 +438,23 @@ export async function fetchPaginatedAdminContent(
               if (lastPart === '_index.md' || lastPart === 'index.md') {
                 try {
                   const { data, content } = matter(raw);
-                  show.indexFrontmatter = data || {};
+                  const showRawDate = data?.date ? new Date(data.date).getTime() : 0;
+                  const showTime = showRawDate || Number(data?.updatedAt) || Number(data?.createdAt) || 0;
+                  show.indexFrontmatter = {
+                    ...data,
+                    date: data?.date || (showTime ? new Date(showTime).toISOString() : undefined),
+                  };
                   show.indexContent = content || '';
+                  show.date = data?.date || (showTime ? new Date(showTime).toISOString() : undefined);
+                  show.updatedAt = showTime;
                 } catch {}
               } else if (/\.(md|markdown)$/i.test(lastPart)) {
                 try {
                   const { data, content } = matter(raw);
                   const seasonFolder = parts.length > 3 ? parts[2] : 's1';
                   const epSlug = lastPart.replace(/\.(md|markdown)$/i, '');
+                  const epRawDate = data?.date ? new Date(data.date).getTime() : 0;
+                  const epTime = epRawDate || Number(data?.updatedAt) || Number(data?.createdAt) || 0;
                   if (!show.episodes.some((e: any) => e.slug === epSlug && e.seasonFolder === seasonFolder)) {
                     show.episodes.push({
                       showSlug,
@@ -411,11 +462,15 @@ export async function fetchPaginatedAdminContent(
                       filename: lastPart,
                       slug: epSlug,
                       relativePath: `tv/${showSlug}/${seasonFolder}/${lastPart}`,
-                      frontmatter: data || {},
+                      frontmatter: {
+                        ...data,
+                        date: data?.date || (epTime ? new Date(epTime).toISOString() : undefined),
+                      },
                       content: content || '',
                       displayTitle: data?.title || epSlug,
                       posterUrl: data?.image_url ? getImageUrl(data.image_url, 'w500') : null,
-                      updatedAt: Date.now(),
+                      date: data?.date || (epTime ? new Date(epTime).toISOString() : undefined),
+                      updatedAt: epTime,
                     });
                   }
                 } catch {}
@@ -424,8 +479,8 @@ export async function fetchPaginatedAdminContent(
             diskTV = Array.from(showsMap.values());
           }
 
-          diskMovies.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-          diskTV.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          diskMovies.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
+          diskTV.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
           return { movies: diskMovies, tvShows: diskTV };
         },
         60_000,
@@ -448,27 +503,34 @@ export async function fetchPaginatedAdminContent(
   let totalAllMoviesCount = 0;
 
   if (mongoActive) {
-    rawMovies = mongoMoviesPaged.items.map((m) => ({
-      filename: `${m.slug}.md`,
-      slug: m.slug,
-      relativePath: `video/${m.slug}.md`,
-      frontmatter: {
-        tmdb_id: m.tmdb_id,
-        title: m.title,
-        videourl: m.videourl,
-        image_url: m.image_url,
-        deskripsi: m.deskripsi,
-        rating: m.rating,
-        featured: m.featured,
-        trending: m.trending,
-        language: normalizeLangCode(m.language),
-        weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
-        subtitles: m.subtitles,
-        duration: m.duration,
-      },
-      content: m.content || '',
-      updatedAt: m.updatedAt || Date.now(),
-    }));
+    rawMovies = mongoMoviesPaged.items.map((m) => {
+      const postIso = m.date || (m.createdAt || m.updatedAt ? new Date(m.createdAt || m.updatedAt).toISOString() : undefined);
+      return {
+        filename: `${m.slug}.md`,
+        slug: m.slug,
+        relativePath: `video/${m.slug}.md`,
+        frontmatter: {
+          tmdb_id: m.tmdb_id,
+          title: m.title,
+          videourl: m.videourl,
+          image_url: m.image_url,
+          deskripsi: m.deskripsi,
+          rating: m.rating,
+          featured: m.featured,
+          trending: m.trending,
+          language: normalizeLangCode(m.language),
+          weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+          date: postIso,
+          createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
+          subtitles: m.subtitles,
+          duration: m.duration,
+        },
+        content: m.content || '',
+        date: postIso,
+        updatedAt: m.updatedAt || Date.now(),
+      };
+    });
 
     totalMovies = mongoMoviesPaged.total;
     totalMoviePages = mongoMoviesPaged.totalPages;
@@ -507,20 +569,14 @@ export async function fetchPaginatedAdminContent(
     }
 
     if (sort === 'oldest') {
-      filtered.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+      filtered.sort((a, b) => getPostTimestamp(a) - getPostTimestamp(b));
     } else if (sort === 'rating') {
       filtered.sort((a, b) => Number(b.frontmatter.rating || 0) - Number(a.frontmatter.rating || 0));
     } else if (sort === 'title') {
       filtered.sort((a, b) => (a.frontmatter.title || a.slug).localeCompare(b.frontmatter.title || b.slug));
-    } else if (sort === 'weight') {
-      filtered.sort((a, b) => {
-        const wA = a.frontmatter.weight !== undefined ? Number(a.frontmatter.weight) : 999999;
-        const wB = b.frontmatter.weight !== undefined ? Number(b.frontmatter.weight) : 999999;
-        return wA - wB;
-      });
     } else {
       // newest
-      filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      filtered.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
     }
 
     totalMovies = filtered.length;
@@ -540,43 +596,50 @@ export async function fetchPaginatedAdminContent(
   let totalEpisodesCount = counts.totalEpisodes || 0;
 
   if (mongoActive) {
-    rawTvShows = mongoTVPaged.items.map((s) => ({
-      showSlug: s.showSlug,
-      relativePath: `tv/${s.showSlug}/_index.md`,
-      indexFrontmatter: {
-        tmdb_id: s.tmdb_id,
-        title: s.title,
-        image_url: s.image_url,
-        deskripsi: s.deskripsi,
-        rating: s.rating,
-        featured: s.featured,
-        trending: s.trending,
-        language: normalizeLangCode(s.language),
-        weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
-      },
-      indexContent: s.content || '',
-      updatedAt: s.updatedAt || Date.now(),
-      episodes: (s.episodes || []).map((ep) => ({
+    rawTvShows = mongoTVPaged.items.map((s) => {
+      const postIso = s.date || (s.createdAt || s.updatedAt ? new Date(s.createdAt || s.updatedAt).toISOString() : undefined);
+      return {
         showSlug: s.showSlug,
-        seasonFolder: ep.seasonFolder,
-        filename: `${ep.episode}.md`,
-        slug: ep.slug || ep.episode,
-        relativePath: `tv/${s.showSlug}/${ep.seasonFolder}/${ep.episode}.md`,
-        frontmatter: {
-          title: ep.title,
-          videourl: ep.videourl,
-          image_url: ep.image_url,
-          deskripsi: ep.deskripsi,
-          rating: ep.rating,
-          duration: ep.duration,
-          subtitles: ep.subtitles,
+        relativePath: `tv/${s.showSlug}/_index.md`,
+        indexFrontmatter: {
+          tmdb_id: s.tmdb_id,
+          title: s.title,
+          image_url: s.image_url,
+          deskripsi: s.deskripsi,
+          rating: s.rating,
+          featured: s.featured,
+          trending: s.trending,
+          language: normalizeLangCode(s.language),
+          weight: s.weight !== undefined && s.weight !== null ? Number(s.weight) : undefined,
+          date: postIso,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
         },
-        content: ep.content || '',
-        displayTitle: ep.title || ep.episode,
-        posterUrl: ep.image_url ? getImageUrl(ep.image_url, 'w500') : null,
-        updatedAt: ep.updatedAt || Date.now(),
-      })),
-    }));
+        indexContent: s.content || '',
+        date: postIso,
+        updatedAt: s.updatedAt || Date.now(),
+        episodes: (s.episodes || []).map((ep) => ({
+          showSlug: s.showSlug,
+          seasonFolder: ep.seasonFolder,
+          filename: `${ep.episode}.md`,
+          slug: ep.slug || ep.episode,
+          relativePath: `tv/${s.showSlug}/${ep.seasonFolder}/${ep.episode}.md`,
+          frontmatter: {
+            title: ep.title,
+            videourl: ep.videourl,
+            image_url: ep.image_url,
+            deskripsi: ep.deskripsi,
+            rating: ep.rating,
+            duration: ep.duration,
+            subtitles: ep.subtitles,
+          },
+          content: ep.content || '',
+          displayTitle: ep.title || ep.episode,
+          posterUrl: ep.image_url ? getImageUrl(ep.image_url, 'w500') : null,
+          updatedAt: ep.updatedAt || Date.now(),
+        })),
+      };
+    });
 
     totalTvShows = mongoTVPaged.total;
     totalTvPages = mongoTVPaged.totalPages;
@@ -615,20 +678,14 @@ export async function fetchPaginatedAdminContent(
     }
 
     if (sort === 'oldest') {
-      filtered.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+      filtered.sort((a, b) => getPostTimestamp(a) - getPostTimestamp(b));
     } else if (sort === 'rating') {
       filtered.sort((a, b) => Number(b.indexFrontmatter.rating || 0) - Number(a.indexFrontmatter.rating || 0));
     } else if (sort === 'title') {
       filtered.sort((a, b) => (a.indexFrontmatter.title || a.showSlug).localeCompare(b.indexFrontmatter.title || b.showSlug));
-    } else if (sort === 'weight') {
-      filtered.sort((a, b) => {
-        const wA = a.indexFrontmatter.weight !== undefined ? Number(a.indexFrontmatter.weight) : 999999;
-        const wB = b.indexFrontmatter.weight !== undefined ? Number(b.indexFrontmatter.weight) : 999999;
-        return wA - wB;
-      });
     } else {
       // newest
-      filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      filtered.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
     }
 
     totalTvShows = filtered.length;
@@ -677,6 +734,8 @@ export async function fetchPaginatedAdminContent(
 
       return {
         ...m,
+        date: m.date || (m.frontmatter as any)?.date,
+        createdAt: m.createdAt || (m.frontmatter as any)?.createdAt,
         posterUrl,
         customImageUrl: customImg || null,
         displayTitle,
@@ -726,6 +785,8 @@ export async function fetchPaginatedAdminContent(
         relativePath: s.relativePath,
         frontmatter: s.indexFrontmatter,
         content: s.indexContent,
+        date: s.date || (s.indexFrontmatter as any)?.date,
+        createdAt: s.createdAt || (s.indexFrontmatter as any)?.createdAt,
         updatedAt: s.updatedAt,
         episodes: s.episodes,
         posterUrl,
@@ -1101,7 +1162,7 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
     })
   );
 
-  movies.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  movies.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
 
   // Enrich TV Shows with TMDB metadata & separate poster from custom player image
   const rawTvShows = Array.from(rawTvShowsMap.values());
@@ -1158,7 +1219,7 @@ export async function fetchAllAdminContent(ghConfig: GitHubOptions) {
     })
   );
 
-  tvShows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  tvShows.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
 
     return {
       movies,
@@ -1248,9 +1309,17 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     const filename = `${fileSlug}.md`;
     relativePath = `video/${filename}`;
 
+    const postDateIso = body.date
+      ? new Date(body.date).toISOString()
+      : new Date().toISOString();
+    const postTimestamp = new Date(postDateIso).getTime();
+
     const frontmatterData: Record<string, any> = {
       tmdb_id: tmdbIdNum,
       videourl: cleanVideo,
+      date: postDateIso,
+      createdAt: postTimestamp,
+      updatedAt: postTimestamp,
     };
 
     if (title && title.trim()) frontmatterData.title = title.trim();
@@ -1260,7 +1329,6 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     if (featured !== undefined) frontmatterData.featured = Boolean(featured);
     if (body.trending !== undefined) frontmatterData.trending = Boolean(body.trending);
     if (body.language && String(body.language).trim()) frontmatterData.language = normalizeLangCode(String(body.language));
-    if (body.weight !== undefined && body.weight !== null && body.weight !== '') frontmatterData.weight = Number(body.weight);
     if (subtitles && subtitles.trim()) frontmatterData.subtitles = subtitles.trim();
 
     fileContent = serializeTinaMovie(frontmatterData, content || '');
@@ -1296,10 +1364,12 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
           featured: frontmatterData.featured || false,
           trending: frontmatterData.trending || false,
           language: frontmatterData.language || 'ID',
-          weight: frontmatterData.weight,
           subtitles: frontmatterData.subtitles || '',
           duration: frontmatterData.duration || '',
           content: content || '',
+          date: postDateIso,
+          createdAt: postTimestamp,
+          updatedAt: postTimestamp,
         });
       } catch (mErr) {
         console.warn('[createAdminContent] MongoDB movie save notice:', mErr);
@@ -1400,8 +1470,16 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     const cleanShowSlug = generateSafeContentSlug(title, tmdbIdNum, 'tv', showSlug);
     relativePath = `tv/${cleanShowSlug}/_index.md`;
 
+    const postDateIso = body.date
+      ? new Date(body.date).toISOString()
+      : new Date().toISOString();
+    const postTimestamp = new Date(postDateIso).getTime();
+
     const frontmatterData: Record<string, any> = {
       tmdb_id: tmdbIdNum,
+      date: postDateIso,
+      createdAt: postTimestamp,
+      updatedAt: postTimestamp,
     };
 
     if (title && title.trim()) frontmatterData.title = title.trim();
@@ -1411,7 +1489,6 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
     if (featured !== undefined) frontmatterData.featured = Boolean(featured);
     if (body.trending !== undefined) frontmatterData.trending = Boolean(body.trending);
     if (body.language && String(body.language).trim()) frontmatterData.language = normalizeLangCode(String(body.language));
-    if (body.weight !== undefined && body.weight !== null && body.weight !== '') frontmatterData.weight = Number(body.weight);
 
     fileContent = serializeTinaTVShow(frontmatterData, content || '');
 
@@ -1535,8 +1612,10 @@ export async function createAdminContent(body: any, ghConfig: GitHubOptions) {
             featured: frontmatterData.featured || false,
             trending: frontmatterData.trending || false,
             language: frontmatterData.language || 'ID',
-            weight: frontmatterData.weight,
             content: content || '',
+            date: postDateIso,
+            createdAt: postTimestamp,
+            updatedAt: postTimestamp,
           },
           mongoEpisodesList
         );
@@ -1775,16 +1854,21 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
       cleanFrontmatter[key] = false;
     }
   }
-  cleanFrontmatter.updatedAt = Date.now();
+  if (newFrontmatter?.date) {
+    cleanFrontmatter.date = new Date(newFrontmatter.date).toISOString();
+    cleanFrontmatter.updatedAt = new Date(cleanFrontmatter.date).getTime();
+  } else {
+    cleanFrontmatter.updatedAt = Date.now();
+    cleanFrontmatter.date = new Date(cleanFrontmatter.updatedAt).toISOString();
+  }
 
   let fileContent = '';
-  const now = Date.now();
+  const now = cleanFrontmatter.updatedAt;
   if (isMovie) {
     if (cleanFrontmatter.videourl && !isValidVideoUrl(cleanFrontmatter.videourl)) {
       throw new Error('URL Video tidak valid. Masukkan format URL yang benar (contoh: https://domain.com/video.mp4 atau https://embed.provider.com/watch/...)');
     }
 
-    cleanFrontmatter.updatedAt = now;
     fileContent = serializeTinaMovie(cleanFrontmatter, content || '');
     const slug = path.basename(relativePath).replace(/\.(md|markdown)$/i, '');
     try {
@@ -1799,17 +1883,16 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
         featured: cleanFrontmatter.featured,
         trending: cleanFrontmatter.trending,
         language: cleanFrontmatter.language || 'ID',
-        weight: cleanFrontmatter.weight,
         subtitles: cleanFrontmatter.subtitles,
         duration: cleanFrontmatter.duration,
         content: content || '',
+        date: cleanFrontmatter.date,
         updatedAt: now,
       });
     } catch (mErr) {
       console.warn('[updateAdminContent] MongoDB movie update notice:', mErr);
     }
   } else if (relativePath.endsWith('_index.md') || relativePath.endsWith('index.md')) {
-    cleanFrontmatter.updatedAt = now;
     fileContent = serializeTinaTVShow(cleanFrontmatter, content || '');
     const showSlug = relativePath.split('/')[1];
     const mongoEps = Array.isArray(body.episodes)
@@ -1844,8 +1927,9 @@ export async function updateAdminContent(body: any, ghConfig: GitHubOptions) {
           featured: cleanFrontmatter.featured,
           trending: cleanFrontmatter.trending,
           language: cleanFrontmatter.language || 'ID',
-          weight: cleanFrontmatter.weight,
           content: content || '',
+          date: cleanFrontmatter.date,
+          updatedAt: now,
         },
         mongoEps
       );

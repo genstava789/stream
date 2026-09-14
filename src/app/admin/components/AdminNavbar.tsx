@@ -26,8 +26,8 @@ interface AdminNavbarProps {
   setActiveTab: (tab: 'movies' | 'tv' | 'users') => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
-  sortOrder: 'newest' | 'oldest' | 'rating' | 'title' | 'weight';
-  setSortOrder: (s: 'newest' | 'oldest' | 'rating' | 'title' | 'weight') => void;
+  sortOrder: 'newest' | 'oldest' | 'rating' | 'title';
+  setSortOrder: (s: 'newest' | 'oldest' | 'rating' | 'title') => void;
   filterLanguage: 'all' | 'ID' | 'MS' | 'KR' | 'EN' | 'JP' | 'ANIME' | 'TH' | 'CN';
   setFilterLanguage: (l: 'all' | 'ID' | 'MS' | 'KR' | 'EN' | 'JP' | 'ANIME' | 'TH' | 'CN') => void;
   filterStatus: 'all' | 'trending' | 'featured';
@@ -290,9 +290,8 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
                 className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer w-full appearance-none pr-6 truncate"
                 aria-label="Urutkan Konten"
               >
-                <option value="newest" className="bg-[#090e1f] text-white">Terbaru</option>
-                <option value="oldest" className="bg-[#090e1f] text-white">Terlama</option>
-                <option value="weight" className="bg-[#090e1f] text-white">Weight Terkecil</option>
+                <option value="newest" className="bg-[#090e1f] text-white">Terbaru (Tanggal Post)</option>
+                <option value="oldest" className="bg-[#090e1f] text-white">Terlama (Tanggal Post)</option>
                 <option value="rating" className="bg-[#090e1f] text-white">Rating Tertinggi</option>
                 <option value="title" className="bg-[#090e1f] text-white">Judul A-Z</option>
               </select>

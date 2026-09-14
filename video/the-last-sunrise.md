@@ -12,5 +12,6 @@ deskripsi: >-
 image_url: 'https://image.tmdb.org/t/p/w1280/dJdZcLn8t1ZLodoxaP4DJ6jgBKy.jpg'
 rating: 7.9
 featured: true
+date: '2026-08-31T22:47:44Z'
 ---
 

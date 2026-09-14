@@ -14,5 +14,6 @@ deskripsi: >-
 image_url: 'https://image.tmdb.org/t/p/w500/lMLS2OFBbNYMSB1ZbVp4q2S4zTU.jpg'
 rating: 5.4
 language: EN
+date: '2026-08-31T22:47:44Z'
 ---
 

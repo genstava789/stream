@@ -11,5 +11,6 @@ rating: 6.4
 featured: true
 trending: true
 language: ID
+date: '2026-08-31T22:47:44Z'
 ---
 

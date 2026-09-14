@@ -8,6 +8,7 @@ import { TVShow, Genre } from '@/types/tmdb';
 import { discoverTVShows, getTVGenres, getGenres, prefetchImages } from '@/lib/tmdb';
 import MovieCard, { MovieCardSkeleton } from '@/components/MovieCard';
 import GenreFilter from '@/components/GenreFilter';
+import { getPostTimestamp } from '@/lib/dateFormat';
 
 interface TVBrowseClientProps {
   initialShows?: TVShow[];
@@ -39,11 +40,8 @@ function sortLocalTVShows(items: TVShow[], sortOption: string): TVShow[] {
   }
   if (sortOption === 'first_air_date.desc' || sortOption === 'newest') {
     return copy.sort((a: any, b: any) => {
-      const timeB = Number(b.updatedAt) || Number(b.createdAt) || 0;
-      const timeA = Number(a.updatedAt) || Number(a.createdAt) || 0;
-      if (timeB > 0 && timeA > 0 && timeB !== timeA) return timeB - timeA;
-      if (timeB > 0 && timeA === 0) return -1;
-      if (timeA > 0 && timeB === 0) return 1;
+      const timeDiff = getPostTimestamp(b) - getPostTimestamp(a);
+      if (timeDiff !== 0) return timeDiff;
 
       const relB = new Date(b.first_air_date || 0).getTime();
       const relA = new Date(a.first_air_date || 0).getTime();
@@ -62,7 +60,6 @@ function sortLocalTVShows(items: TVShow[], sortOption: string): TVShow[] {
   }
   if (sortOption === 'popularity.desc') {
     return copy.sort((a: any, b: any) => {
-      if ((b.weight || 0) !== (a.weight || 0)) return (b.weight || 0) - (a.weight || 0);
       const diff = (b.popularity || 100) - (a.popularity || 100);
       if (diff !== 0) return diff;
       return (a.name || (a as any).title || '').localeCompare(b.name || (b as any).title || '');

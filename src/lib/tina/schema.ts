@@ -16,7 +16,10 @@ export interface TinaMovieFrontmatter {
   featured?: boolean;
   trending?: boolean;
   language?: string; // e.g. 'ID', 'KR', 'EN'
-  weight?: number; // Sorting priority (smaller = first)
+  weight?: number; // Legacy sorting priority
+  date?: string; // Standard ISO 8601 post date
+  createdAt?: number | string;
+  updatedAt?: number | string;
   subtitles?: string;
   [key: string]: any;
 }
@@ -30,7 +33,10 @@ export interface TinaTVShowFrontmatter {
   featured?: boolean;
   trending?: boolean;
   language?: string; // e.g. 'ID', 'KR', 'EN'
-  weight?: number; // Sorting priority (smaller = first)
+  weight?: number; // Legacy sorting priority
+  date?: string; // Standard ISO 8601 post date
+  createdAt?: number | string;
+  updatedAt?: number | string;
   [key: string]: any;
 }
 
@@ -42,6 +48,9 @@ export interface TinaTVEpisodeFrontmatter {
   rating?: number | string;
   duration?: string;
   subtitles?: string;
+  date?: string;
+  createdAt?: number | string;
+  updatedAt?: number | string;
   [key: string]: any;
 }
 
@@ -78,15 +87,25 @@ export function serializeTinaMovie(
   if (frontmatter.language && String(frontmatter.language).trim()) {
     cleanData.language = normalizeLangCode(String(frontmatter.language));
   }
-  if (frontmatter.weight !== undefined && frontmatter.weight !== null && frontmatter.weight !== '') {
-    cleanData.weight = Number(frontmatter.weight);
+  if (frontmatter.date && String(frontmatter.date).trim()) {
+    cleanData.date = String(frontmatter.date).trim();
+  } else if (frontmatter.createdAt || frontmatter.updatedAt) {
+    const rawTime = Number(frontmatter.createdAt || frontmatter.updatedAt);
+    if (rawTime > 0) cleanData.date = new Date(rawTime).toISOString();
+  }
+  if (frontmatter.createdAt !== undefined && frontmatter.createdAt !== null) {
+    cleanData.createdAt = Number(frontmatter.createdAt) || frontmatter.createdAt;
+  }
+  if (frontmatter.updatedAt !== undefined && frontmatter.updatedAt !== null) {
+    cleanData.updatedAt = Number(frontmatter.updatedAt) || frontmatter.updatedAt;
   }
   if (frontmatter.subtitles && String(frontmatter.subtitles).trim()) {
     cleanData.subtitles = String(frontmatter.subtitles).trim();
   }
 
-  // Preserve any extra custom fields
+  // Preserve any extra custom fields (excluding legacy weight unless explicitly non-empty)
   for (const [k, v] of Object.entries(frontmatter)) {
+    if (k === 'weight') continue; // Omit weight from newly serialized files
     if (cleanData[k] === undefined && v !== undefined && v !== null && v !== '') {
       cleanData[k] = v;
     }
@@ -127,11 +146,21 @@ export function serializeTinaTVShow(
   if (frontmatter.language && String(frontmatter.language).trim()) {
     cleanData.language = normalizeLangCode(String(frontmatter.language));
   }
-  if (frontmatter.weight !== undefined && frontmatter.weight !== null && frontmatter.weight !== '') {
-    cleanData.weight = Number(frontmatter.weight);
+  if (frontmatter.date && String(frontmatter.date).trim()) {
+    cleanData.date = String(frontmatter.date).trim();
+  } else if (frontmatter.createdAt || frontmatter.updatedAt) {
+    const rawTime = Number(frontmatter.createdAt || frontmatter.updatedAt);
+    if (rawTime > 0) cleanData.date = new Date(rawTime).toISOString();
+  }
+  if (frontmatter.createdAt !== undefined && frontmatter.createdAt !== null) {
+    cleanData.createdAt = Number(frontmatter.createdAt) || frontmatter.createdAt;
+  }
+  if (frontmatter.updatedAt !== undefined && frontmatter.updatedAt !== null) {
+    cleanData.updatedAt = Number(frontmatter.updatedAt) || frontmatter.updatedAt;
   }
 
   for (const [k, v] of Object.entries(frontmatter)) {
+    if (k === 'weight') continue; // Omit weight from newly serialized files
     if (cleanData[k] === undefined && v !== undefined && v !== null && v !== '') {
       cleanData[k] = v;
     }

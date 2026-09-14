@@ -24,6 +24,7 @@ import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { cleanVideoUrl, isValidVideoUrl, extractTmdbIdAndType } from '@/lib/urls';
 import { normalizeLangCode } from '@/lib/language';
+import { toDateTimeLocalString, timeFormat } from '@/lib/dateFormat';
 import siteConfig from '@/config';
 
 interface TMDBLiveSearchResult {
@@ -72,7 +73,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
   const [formFeatured, setFormFeatured] = useState(false);
   const [formTrending, setFormTrending] = useState(false);
   const [formLanguage, setFormLanguage] = useState('ID');
-  const [formWeight, setFormWeight] = useState('');
+  const [formDate, setFormDate] = useState<string>(() => toDateTimeLocalString(new Date()));
   const [formSubtitles, setFormSubtitles] = useState('');
   const [formDuration, setFormDuration] = useState('');
   const [formTvShowSlug, setFormTvShowSlug] = useState('');
@@ -178,7 +179,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       setFormFeatured(false);
       setFormTrending(false);
       setFormLanguage('ID');
-      setFormWeight('');
+      setFormDate(toDateTimeLocalString(new Date()));
       setFormSubtitles('');
       setFormDuration('');
       setSearchQuery('');
@@ -376,7 +377,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({
         featured: formFeatured,
         trending: formTrending,
         language: formLanguage,
-        weight: formWeight ? Number(formWeight) : undefined,
+        date: formDate ? new Date(formDate).toISOString() : new Date().toISOString(),
         subtitles: formSubtitles,
         duration: formDuration,
         showSlug: formTvShowSlug,
@@ -882,18 +883,22 @@ export const CreateModal: React.FC<CreateModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Weight Prioritas
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-slate-300">
+                  Tanggal Post
+                </label>
+                {formDate && (
+                  <span className="text-[10px] text-cyan-400 font-mono" title="Format: {{ time.Format &quot;2 Jan 2006, 15:04&quot; $t }}">
+                    {timeFormat("2 Jan 2006, 15:04", formDate)}
+                  </span>
+                )}
+              </div>
               <input
-                type="number"
-                min="1"
-                max="9999"
-                value={formWeight}
-                onChange={(e) => setFormWeight(e.target.value)}
-                placeholder="Urutan (1, 2, ..)"
+                type="datetime-local"
+                value={formDate}
+                onChange={(e) => setFormDate(e.target.value)}
                 className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
-                title="Angka lebih kecil = urutan lebih prioritas/paling depan di section"
+                title="Tanggal dan waktu post dibuat/diedit (menentukan urutan post terbaru di halaman depan)"
               />
             </div>
             <div>

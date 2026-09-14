@@ -9,6 +9,8 @@ export interface MovieItem {
   displayTitle?: string;
   year?: number | null;
   rating?: number | null;
+  date?: string;
+  createdAt?: number | string;
   updatedAt?: number;
 }
 
@@ -22,6 +24,8 @@ export interface TVEpisodeItem {
   content: string;
   displayTitle?: string;
   posterUrl: string | null;
+  date?: string;
+  createdAt?: number | string;
   updatedAt?: number;
 }
 
@@ -37,6 +41,8 @@ export interface TVShowItem {
   displayTitle?: string;
   year?: number | null;
   rating?: number | null;
+  date?: string;
+  createdAt?: number | string;
 }
 
 export interface TMDBBackdropImage {
@@ -83,6 +89,9 @@ export interface EditingItemState {
   relativePath: string;
   frontmatter: Record<string, any>;
   content: string;
+  date?: string;
+  createdAt?: number | string;
+  updatedAt?: number;
 }
 
 export interface ToastNotification {

@@ -5,6 +5,7 @@ import { Film, Plus, ExternalLink, Edit2, Trash2, Star, Check, ChevronLeft, Chev
 import { MovieItem } from '../types';
 import { getMovieUrl } from '@/lib/urls';
 import { getLanguageBadge } from '@/lib/language';
+import { formatPostDate } from '@/lib/dateFormat';
 
 interface MovieListViewProps {
   movies: MovieItem[];
@@ -172,7 +173,6 @@ export const MovieListView: React.FC<MovieListViewProps> = ({
           const tmdbId = movie.frontmatter.tmdb_id;
           const poster = movie.posterUrl || movie.frontmatter.image_url || movie.frontmatter.poster_path;
           const isFeatured = Boolean(movie.frontmatter.featured);
-          const weight = movie.frontmatter.weight;
           const rating = movie.rating || movie.frontmatter.rating;
           const isSelected = selectedPaths.includes(movie.relativePath);
 
@@ -234,11 +234,18 @@ export const MovieListView: React.FC<MovieListViewProps> = ({
                           </span>
                         );
                       })()}
-                      {weight !== undefined && weight !== null && (
-                        <span className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Prioritas Weight">
-                          W: {weight}
-                        </span>
-                      )}
+                      {(() => {
+                        const postDate = movie.frontmatter.date || movie.date || movie.updatedAt || movie.createdAt;
+                        if (!postDate) return null;
+                        return (
+                          <span
+                            className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono"
+                            title={`Tanggal Post: ${formatPostDate(movie, "2 Jan 2006, 15:04")}`}
+                          >
+                            {formatPostDate(movie, "2 Jan 2006")}
+                          </span>
+                        );
+                      })()}
                       {Boolean(movie.frontmatter.trending) && (
                         <span className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                           Trending

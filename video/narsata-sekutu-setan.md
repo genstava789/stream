@@ -10,5 +10,6 @@ image_url: 'https://image.tmdb.org/t/p/w1280/avstHzee45yEG2krW6snBgfycs9.jpg'
 rating: 7
 language: MS
 updatedAt: 1772600000000
+date: '2026-08-31T22:47:44Z'
 ---
 

@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, SlidersHorizontal, Globe, Film, Tv, MessageS
 import { Movie, TVShow, Genre } from '@/types/tmdb';
 import MovieCard from '@/components/MovieCard';
 import GenreFilter from '@/components/GenreFilter';
+import { getPostTimestamp } from '@/lib/dateFormat';
 
 interface GenrePageClientProps {
   genre: Genre;
@@ -118,11 +119,10 @@ export default function GenrePageClient({
         return dateA.localeCompare(dateB);
       });
     } else {
-      // Default: weight ascending first, then popularity
+      // Default: newest post date first, then popularity
       list.sort((a: any, b: any) => {
-        const wA = a.weight !== undefined && a.weight !== null ? Number(a.weight) : 999999;
-        const wB = b.weight !== undefined && b.weight !== null ? Number(b.weight) : 999999;
-        if (wA !== wB) return wA - wB;
+        const timeDiff = getPostTimestamp(b) - getPostTimestamp(a);
+        if (timeDiff !== 0) return timeDiff;
         return (b.popularity || 0) - (a.popularity || 0);
       });
     }

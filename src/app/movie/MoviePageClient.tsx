@@ -8,6 +8,7 @@ import { Movie, Genre } from '@/types/tmdb';
 import { discoverMovies, getGenres, prefetchImages } from '@/lib/tmdb';
 import MovieCard, { MovieCardSkeleton } from '@/components/MovieCard';
 import GenreFilter from '@/components/GenreFilter';
+import { getPostTimestamp } from '@/lib/dateFormat';
 
 interface MoviePageClientProps {
   initialMovies?: Movie[];
@@ -40,11 +41,8 @@ function sortLocalMovies(items: Movie[], sortOption: string): Movie[] {
   }
   if (sortOption === 'release_date.desc' || sortOption === 'newest') {
     return copy.sort((a: any, b: any) => {
-      const timeB = Number(b.updatedAt) || Number(b.createdAt) || 0;
-      const timeA = Number(a.updatedAt) || Number(a.createdAt) || 0;
-      if (timeB > 0 && timeA > 0 && timeB !== timeA) return timeB - timeA;
-      if (timeB > 0 && timeA === 0) return -1;
-      if (timeA > 0 && timeB === 0) return 1;
+      const timeDiff = getPostTimestamp(b) - getPostTimestamp(a);
+      if (timeDiff !== 0) return timeDiff;
 
       const relB = new Date(b.release_date || 0).getTime();
       const relA = new Date(a.release_date || 0).getTime();
@@ -63,7 +61,6 @@ function sortLocalMovies(items: Movie[], sortOption: string): Movie[] {
   }
   if (sortOption === 'popularity.desc') {
     return copy.sort((a: any, b: any) => {
-      if ((b.weight || 0) !== (a.weight || 0)) return (b.weight || 0) - (a.weight || 0);
       const diff = (b.popularity || 100) - (a.popularity || 100);
       if (diff !== 0) return diff;
       return (a.title || '').localeCompare(b.title || '');

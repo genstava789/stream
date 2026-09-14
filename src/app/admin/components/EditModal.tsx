@@ -21,6 +21,7 @@ import { BackdropPicker } from './BackdropPicker';
 import { S3BrowserModal } from './S3BrowserModal';
 import { extractTmdbIdAndType, cleanVideoUrl, isValidVideoUrl } from '@/lib/urls';
 import { normalizeLangCode } from '@/lib/language';
+import { toDateTimeLocalString, timeFormat } from '@/lib/dateFormat';
 import siteConfig from '@/config';
 
 interface EditableEpisode {
@@ -210,9 +211,15 @@ export const EditModal: React.FC<EditModalProps> = ({
     setSubmitting(true);
     try {
       setSubmitError(null);
+      const cleanFrontmatter = { ...editingItem.frontmatter };
+      delete cleanFrontmatter.weight;
+      if (!cleanFrontmatter.date) {
+        cleanFrontmatter.date = new Date().toISOString();
+      }
+      cleanFrontmatter.updatedAt = Date.now();
       const payload: any = {
         relativePath: editingItem.relativePath,
-        frontmatter: editingItem.frontmatter,
+        frontmatter: cleanFrontmatter,
         content: editingItem.content,
       };
 
@@ -617,18 +624,26 @@ export const EditModal: React.FC<EditModalProps> = ({
 
                 {editingItem.type !== 'tv_episode' && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      Weight Prioritas
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-slate-300">
+                        Tanggal Post
+                      </label>
+                      {(editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt) && (
+                        <span className="text-[10px] text-cyan-400 font-mono" title="Format: {{ time.Format &quot;2 Jan 2006, 15:04&quot; $t }}">
+                          {timeFormat("2 Jan 2006, 15:04", editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt)}
+                        </span>
+                      )}
+                    </div>
                     <input
-                      type="number"
-                      min="1"
-                      max="9999"
-                      value={editingItem.frontmatter.weight || ''}
-                      onChange={(e) => updateFrontmatter('weight', e.target.value ? Number(e.target.value) : undefined)}
-                      placeholder="Urutan (1, 2, ..)"
+                      type="datetime-local"
+                      value={toDateTimeLocalString(editingItem.frontmatter.date || editingItem.updatedAt || editingItem.createdAt || new Date())}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const isoStr = val ? new Date(val).toISOString() : new Date().toISOString();
+                        updateFrontmatter('date', isoStr);
+                      }}
                       className="w-full px-3.5 py-2.5 sm:py-3 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 min-h-[42px]"
-                      title="Angka lebih kecil = urutan lebih prioritas/paling depan di section"
+                      title="Tanggal dan waktu post dibuat/diedit (menentukan urutan post terbaru di halaman depan)"
                     />
                   </div>
                 )}

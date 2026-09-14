@@ -45,7 +45,8 @@ export interface MongoMovie {
   featured?: boolean;
   trending?: boolean;
   language?: string; // e.g. 'ID', 'KR', 'EN'
-  weight?: number; // Sorting priority (smaller = first)
+  weight?: number; // Legacy sorting priority
+  date?: string; // Standard ISO 8601 post date
   subtitles?: string;
   duration?: string;
   content?: string;
@@ -65,7 +66,8 @@ export interface MongoTVShow {
   featured?: boolean;
   trending?: boolean;
   language?: string; // e.g. 'ID', 'KR', 'EN'
-  weight?: number; // Sorting priority (smaller = first)
+  weight?: number; // Legacy sorting priority
+  date?: string; // Standard ISO 8601 post date
   content?: string;
   deleted?: boolean;
   episodes?: MongoTVEpisode[];
@@ -560,6 +562,11 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
   const existing = await movies.findOne({ $or: queryOr }).catch(() => null);
   const finalSlug = existing?.slug || slug;
 
+  const resolvedCreatedAt = data.createdAt || existing?.createdAt || now;
+  // Preserve existing.updatedAt on partial updates/demotions; do not overwrite with now unless explicitly provided
+  const resolvedUpdatedAt = data.updatedAt !== undefined ? data.updatedAt : (existing?.updatedAt || now);
+  const resolvedDate = data.date || existing?.date || new Date(resolvedUpdatedAt).toISOString();
+
   const doc: MongoMovie = {
     slug: finalSlug,
     tmdb_id: data.tmdb_id !== undefined ? Number(data.tmdb_id) : (existing?.tmdb_id || 0),
@@ -575,8 +582,9 @@ export async function saveMongoMovie(data: Partial<MongoMovie>): Promise<MongoMo
     subtitles: (data.subtitles !== undefined ? data.subtitles : (existing?.subtitles || '')).trim(),
     duration: (data.duration !== undefined ? data.duration : (existing?.duration || '')).trim(),
     content: data.content !== undefined ? data.content : (existing?.content || ''),
-    createdAt: existing?.createdAt || data.createdAt || now,
-    updatedAt: data.updatedAt || now,
+    date: resolvedDate,
+    createdAt: resolvedCreatedAt,
+    updatedAt: resolvedUpdatedAt,
   };
 
   await movies.updateOne({ $or: queryOr }, { $set: doc }, { upsert: true });
@@ -851,6 +859,11 @@ export async function saveMongoTVShow(
   const existing = await tvShows.findOne({ $or: queryOr }).catch(() => null);
   const finalShowSlug = existing?.showSlug || showSlug;
 
+  const resolvedCreatedAt = data.createdAt || existing?.createdAt || now;
+  // Preserve existing.updatedAt on partial updates/demotions; do not overwrite with now unless explicitly provided
+  const resolvedUpdatedAt = data.updatedAt !== undefined ? data.updatedAt : (existing?.updatedAt || now);
+  const resolvedDate = data.date || existing?.date || new Date(resolvedUpdatedAt).toISOString();
+
   const showDoc: MongoTVShow = {
     showSlug: finalShowSlug,
     tmdb_id: data.tmdb_id !== undefined ? Number(data.tmdb_id) : (existing?.tmdb_id || 0),
@@ -863,8 +876,9 @@ export async function saveMongoTVShow(
     language: data.language !== undefined ? normalizeLangCode(data.language) : (existing?.language || 'ID'),
     weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : existing?.weight,
     content: data.content !== undefined ? data.content : (existing?.content || ''),
-    createdAt: existing?.createdAt || data.createdAt || now,
-    updatedAt: data.updatedAt || now,
+    date: resolvedDate,
+    createdAt: resolvedCreatedAt,
+    updatedAt: resolvedUpdatedAt,
   };
 
   await tvShows.updateOne({ $or: queryOr }, { $set: showDoc }, { upsert: true });
@@ -1262,6 +1276,7 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
         subtitles: String(fm.subtitles || '').trim(),
         duration: String(fm.duration || '').trim(),
         content: parsed.content || '',
+        date: fm.date || (parsedCreatedAt ? new Date(parsedCreatedAt).toISOString() : new Date(fallbackTime).toISOString()),
         createdAt: existing?.createdAt || parsedCreatedAt || fallbackTime,
         updatedAt: parsedUpdatedAt || existing?.updatedAt || fallbackTime,
       };
@@ -1321,6 +1336,7 @@ export async function syncGitHubToMongoDB(ghConfig: GitHubOptions): Promise<{
         language: String(fm.language || 'ID').toUpperCase().trim(),
         weight: fm.weight !== undefined && fm.weight !== null ? Number(fm.weight) : undefined,
         content: parsed.content || '',
+        date: fm.date || (parsedCreatedAt ? new Date(parsedCreatedAt).toISOString() : new Date(fallbackTime).toISOString()),
         createdAt: existing?.createdAt || parsedCreatedAt || fallbackTime,
         updatedAt: parsedUpdatedAt || existing?.updatedAt || fallbackTime,
       };

@@ -8,6 +8,7 @@ deskripsi: >-
 image_url: 'https://image.tmdb.org/t/p/w1280/7O4iVfOMQmdCSxhOg1WnzG1AgYT.jpg'
 rating: 9.9
 language: JP
+date: '2026-08-31T22:47:44Z'
 ---
 
 # ⚔️ Shōgun - Limited Series Edition (Flat Episode Layout)

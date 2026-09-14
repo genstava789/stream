@@ -21,6 +21,7 @@ import {
   serializeTinaTVEpisode,
 } from '@/lib/tina/schema';
 import { STATIC_MOVIE_FILES, STATIC_TV_FILES } from '@/lib/staticContentRegistry';
+import { getPostTimestamp } from '@/lib/dateFormat';
 
 const VIDEO_DIR = path.join(process.cwd(), 'video');
 const TV_DIR = path.join(process.cwd(), 'tv');
@@ -66,7 +67,7 @@ export class LocalMarkdownProvider implements IContentProvider {
                 frontmatter: data,
                 content,
                 contentHtml: marked.parse(content || '') as string,
-                updatedAt: stats.mtimeMs,
+                updatedAt: getPostTimestamp({ date: data.date, updatedAt: data.updatedAt, createdAt: data.createdAt }) || stats.mtimeMs,
               });
             } catch (err) {
               console.error(`[LocalMarkdownProvider] Error reading movie ${file}:`, err);
@@ -91,7 +92,7 @@ export class LocalMarkdownProvider implements IContentProvider {
                   frontmatter: data,
                   content,
                   contentHtml: marked.parse(content || '') as string,
-                  updatedAt: Date.now(),
+                  updatedAt: getPostTimestamp({ date: data.date, updatedAt: data.updatedAt, createdAt: data.createdAt }) || 0,
                 });
               } catch {}
             }
@@ -119,7 +120,7 @@ export class LocalMarkdownProvider implements IContentProvider {
                   frontmatter: data,
                   content,
                   contentHtml: marked.parse(content || '') as string,
-                  updatedAt: Date.now(),
+                  updatedAt: getPostTimestamp({ date: data.date, updatedAt: data.updatedAt, createdAt: data.createdAt }) || 0,
                 });
               } catch {}
             }
@@ -148,8 +149,8 @@ export class LocalMarkdownProvider implements IContentProvider {
       );
     }
 
-    if (query?.sortBy === 'newest') result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    if (query?.sortBy === 'oldest') result.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    if (query?.sortBy === 'newest') result.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
+    if (query?.sortBy === 'oldest') result.sort((a, b) => getPostTimestamp(a) - getPostTimestamp(b));
     if (query?.sortBy === 'title_asc') result.sort((a, b) => a.title.localeCompare(b.title));
     if (query?.sortBy === 'title_desc') result.sort((a, b) => b.title.localeCompare(a.title));
 
@@ -319,6 +320,7 @@ export class LocalMarkdownProvider implements IContentProvider {
                   show.title = data?.title || showSlug;
                   show.content = content || '';
                   show.contentHtml = marked.parse(content || '') as string;
+                  show.updatedAt = getPostTimestamp({ date: data?.date, updatedAt: data?.updatedAt, createdAt: data?.createdAt }) || 0;
                 } catch {}
               } else if (/\.(md|markdown)$/i.test(lastPart)) {
                 try {
@@ -379,6 +381,7 @@ export class LocalMarkdownProvider implements IContentProvider {
                   show.title = data?.title || showSlug;
                   show.content = content || '';
                   show.contentHtml = marked.parse(content || '') as string;
+                  show.updatedAt = getPostTimestamp({ date: data?.date, updatedAt: data?.updatedAt, createdAt: data?.createdAt }) || 0;
                 } catch {}
               } else if (/\.(md|markdown)$/i.test(lastPart)) {
                 try {
@@ -429,8 +432,8 @@ export class LocalMarkdownProvider implements IContentProvider {
       );
     }
 
-    if (query?.sortBy === 'newest') result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    if (query?.sortBy === 'oldest') result.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+    if (query?.sortBy === 'newest') result.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
+    if (query?.sortBy === 'oldest') result.sort((a, b) => getPostTimestamp(a) - getPostTimestamp(b));
     if (query?.sortBy === 'title_asc') result.sort((a, b) => a.title.localeCompare(b.title));
     if (query?.sortBy === 'title_desc') result.sort((a, b) => b.title.localeCompare(a.title));
 

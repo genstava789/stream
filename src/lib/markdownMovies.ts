@@ -10,6 +10,7 @@ import { getMongoMovieBySlug, getMongoMovies } from '@/lib/mongodb/service';
 import { isMongoConfigured } from '@/lib/mongodb/client';
 import * as React from 'react';
 import { memoryCache } from '@/lib/cache';
+import { getPostTimestamp } from '@/lib/dateFormat';
 
 const reactCache: <T extends (...args: any[]) => any>(fn: T) => T = (React as any).cache || ((fn: any) => fn);
 
@@ -24,6 +25,9 @@ export interface CustomMovieFrontmatter {
   image_url?: string;
   tagline?: string;
   featured?: boolean | string;
+  date?: string;
+  createdAt?: number | string;
+  updatedAt?: number | string;
   subtitle?: string;
   subtitles?: any;
   subtitle_url?: string;
@@ -660,6 +664,7 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
                   trending: Boolean(data.trending),
                   language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                   weight: data.weight !== undefined && data.weight !== null ? Number(data.weight) : undefined,
+                  date: data.date ? String(data.date) : undefined,
                   createdAt: Number(data.createdAt) || fileTime,
                   updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
                 };
@@ -672,22 +677,8 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
           movieDocs = diskMovies.filter((m) => Boolean(m.featured));
         }
 
-        // Sort by weight (smaller = first), then updatedAt (newest first), then createdAt
-        movieDocs.sort((a, b) => {
-          const hasWA = a.weight !== undefined && a.weight !== null && a.weight !== '';
-          const hasWB = b.weight !== undefined && b.weight !== null && b.weight !== '';
-          if (hasWA || hasWB) {
-            const wA = hasWA ? Number(a.weight) : 999999;
-            const wB = hasWB ? Number(b.weight) : 999999;
-            if (wA !== wB) return wA - wB;
-          }
-          const timeB = Number(b.updatedAt) || Number(b.createdAt) || 0;
-          const timeA = Number(a.updatedAt) || Number(a.createdAt) || 0;
-          if (timeB > 0 && timeA > 0 && timeB !== timeA) return timeB - timeA;
-          if (timeB > 0 && timeA === 0) return -1;
-          if (timeA > 0 && timeB === 0) return 1;
-          return 0;
-        });
+        // Sort by post timestamp (newest date first)
+        movieDocs.sort((a, b) => getPostTimestamp(b) - getPostTimestamp(a));
 
         const mappedItems = await Promise.all(
           movieDocs.map(async (m) => {
@@ -752,6 +743,7 @@ export async function getAllFeaturedCustomMovies(): Promise<FeaturedItem[]> {
               featured: true,
               trending: Boolean(m.trending),
               language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
+              date: m.date || undefined,
               isCustom: true,
             } as FeaturedItem;
           })
@@ -824,6 +816,7 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
                 trending: Boolean(data.trending),
                 language: data.language ? String(data.language).trim().toUpperCase() : 'ID',
                 weight: data.weight !== undefined && data.weight !== null && data.weight !== '' ? Number(data.weight) : undefined,
+                date: data.date ? String(data.date) : undefined,
                 createdAt: Number(data.createdAt) || fileTime,
                 updatedAt: Number(data.updatedAt) || Number(data.createdAt) || fileTime,
               });
@@ -886,6 +879,7 @@ export async function getAllCustomMoviesForList(): Promise<any[]> {
               trending: Boolean(m.trending),
               language: m.language ? String(m.language).trim().toUpperCase() : 'ID',
               weight: m.weight !== undefined && m.weight !== null ? Number(m.weight) : undefined,
+              date: m.date || undefined,
               updatedAt: Number(m.updatedAt) || Number(m.createdAt) || 0,
               createdAt: Number(m.createdAt) || Number(m.updatedAt) || 0,
             };

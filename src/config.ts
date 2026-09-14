@@ -21,6 +21,9 @@ export interface FeaturedItem {
   link?: string;
   badge?: string;
   featured?: boolean | string;
+  date?: string;
+  createdAt?: number | string;
+  updatedAt?: number | string;
   isCustom?: boolean;
 }
 

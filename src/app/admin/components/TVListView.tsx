@@ -18,6 +18,7 @@ import {
 import { TVShowItem, TVEpisodeItem } from '../types';
 import { getTVUrl } from '@/lib/urls';
 import { getLanguageBadge } from '@/lib/language';
+import { formatPostDate } from '@/lib/dateFormat';
 
 interface TVListViewProps {
   tvShows: TVShowItem[];
@@ -256,7 +257,6 @@ export const TVListView: React.FC<TVListViewProps> = ({
           const tmdbId = show.frontmatter.tmdb_id;
           const poster = show.posterUrl || show.frontmatter.image_url;
           const year = show.year;
-          const weight = show.frontmatter.weight;
           const showSeasons = getShowSeasons(show);
           const isSelected = selectedPaths.includes(show.relativePath);
 
@@ -319,11 +319,18 @@ export const TVListView: React.FC<TVListViewProps> = ({
                           </span>
                         );
                       })()}
-                      {weight !== undefined && weight !== null && (
-                        <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30" title="Prioritas Weight">
-                          W: {weight}
-                        </span>
-                      )}
+                      {(() => {
+                        const postDate = show.date || show.frontmatter?.date || show.updatedAt || show.createdAt;
+                        if (!postDate) return null;
+                        return (
+                          <span
+                            className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono"
+                            title={`Tanggal Post: ${formatPostDate(show, "2 Jan 2006, 15:04")}`}
+                          >
+                            {formatPostDate(show, "2 Jan 2006")}
+                          </span>
+                        );
+                      })()}
                       {Boolean(show.frontmatter.trending) && (
                         <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                           Trending

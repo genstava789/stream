@@ -9,5 +9,6 @@ deskripsi: >-
 rating: 9.6
 featured: true
 language: EN
+date: '2026-08-31T22:47:44Z'
 ---
 

@@ -7,5 +7,6 @@ deskripsi: >-
   A story about a woman from the International Special Forces Unit, who has a
   premonition about the impending end of humanity.
 rating: 5.6
+date: '2026-08-31T22:47:44Z'
 ---
 

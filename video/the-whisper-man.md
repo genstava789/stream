@@ -8,6 +8,8 @@ deskripsi: >-
   a retired detective who put away the serial killer now linked to the case.
 image_url: 'https://image.tmdb.org/t/p/w500/6UqflU8Qqkz7Dq4swJPqs0ZJjY4.jpg'
 rating: 0
+featured: false
 language: EN
+date: '2026-08-31T22:47:44Z'
 ---
 
